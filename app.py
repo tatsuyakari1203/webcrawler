@@ -4,7 +4,6 @@ import json
 from queue import Queue, Empty
 from urllib.parse import urlparse, urljoin, urldefrag
 from urllib.robotparser import RobotFileParser
-
 import aiohttp
 from aiohttp import ClientTimeout
 from bs4 import BeautifulSoup
@@ -13,6 +12,7 @@ import threading
 import concurrent.futures
 from playwright.async_api import async_playwright
 import psutil  # pip install psutil
+import xml.etree.ElementTree as ET
 
 # ------------------------------
 # Flask app initialization
@@ -21,7 +21,6 @@ app = Flask(__name__)
 
 # Global log queue dùng cho SSE (Server Sent Events)
 log_queue = Queue()
-
 
 def send_log(message: str):
     """
@@ -33,20 +32,16 @@ def send_log(message: str):
     print(full_message)
     log_queue.put(full_message)
 
-
 # ------------------------------
-# Các hàm hỗ trợ crawl
+# Hàm hỗ trợ lấy và parse robots.txt, cũng như lấy danh sách sitemap
 # ------------------------------
 async def get_robot_parser(session: aiohttp.ClientSession, domain: str, timeout: ClientTimeout):
     """
     Lấy và phân tích nội dung robots.txt từ domain cho trước.
-
-    :param session: Phiên làm việc aiohttp.
-    :param domain: Tên domain (ví dụ: 'example.com').
-    :param timeout: Thời gian timeout cho request.
-    :return: RobotFileParser đã được parse, hoặc None nếu không tìm thấy.
+    Nếu tìm được các sitemap, tiến hành lấy danh sách URL từ sitemap đệ quy.
     """
     rp = RobotFileParser()
+    sitemap_urls = []
     for scheme in ["https", "http"]:
         robots_url = f"{scheme}://{domain}/robots.txt"
         try:
@@ -55,24 +50,65 @@ async def get_robot_parser(session: aiohttp.ClientSession, domain: str, timeout:
                     text = await response.text()
                     rp.parse(text.splitlines())
                     send_log(f"Loaded robots.txt from {robots_url}")
-                    return rp
+                    # Tìm directive Sitemap trong robots.txt
+                    for line in text.splitlines():
+                        if line.lower().startswith("sitemap:"):
+                            sitemap = line.split(":", 1)[1].strip()
+                            sitemap_urls.append(sitemap)
+                    break  # Dừng sau khi tìm được robots.txt hợp lệ
                 else:
                     send_log(f"Robots.txt not found at {robots_url} (status {response.status})")
         except Exception as e:
             send_log(f"Failed to load robots.txt from {robots_url}: {e}")
-    send_log(f"No valid robots.txt for {domain}")
-    return None
+    if not sitemap_urls:
+        send_log(f"No sitemap found in robots.txt for {domain}")
+    return rp, sitemap_urls
 
+async def fetch_sitemap_urls(sitemap_url: str, session: aiohttp.ClientSession, timeout: ClientTimeout, recursive=True):
+    """
+    Lấy và parse sitemap từ sitemap_url.
+    Hỗ trợ cả sitemap index (chứa các sitemap khác) nếu recursive=True.
+    Trả về danh sách URL thu được.
+    """
+    urls = []
+    try:
+        async with session.get(sitemap_url, timeout=timeout) as response:
+            if response.status != 200:
+                send_log(f"Failed to fetch sitemap: {sitemap_url} (status {response.status})")
+                return urls
+            text = await response.text()
+            try:
+                root = ET.fromstring(text)
+            except Exception as e:
+                send_log(f"XML parse error for sitemap {sitemap_url}: {e}")
+                return urls
+            namespace = {'ns': root.tag.split('}')[0].strip('{')} if '}' in root.tag else {}
+            # Kiểm tra xem đây có phải sitemap index không
+            if root.tag.endswith("sitemapindex"):
+                send_log(f"Sitemap index detected: {sitemap_url}")
+                for sitemap in root.findall("ns:sitemap", namespace) if namespace else root.findall("sitemap"):
+                    loc = sitemap.find("ns:loc", namespace).text if namespace else sitemap.find("loc").text
+                    if recursive:
+                        # Đệ quy lấy URL từ sitemap con
+                        urls.extend(await fetch_sitemap_urls(loc, session, timeout, recursive))
+            elif root.tag.endswith("urlset"):
+                for url in root.findall("ns:url", namespace) if namespace else root.findall("url"):
+                    loc = url.find("ns:loc", namespace).text if namespace else url.find("loc").text
+                    urls.append(loc)
+                send_log(f"Found {len(urls)} URLs in sitemap: {sitemap_url}")
+            else:
+                send_log(f"Unknown sitemap format at {sitemap_url}")
+    except Exception as e:
+        send_log(f"Error fetching sitemap {sitemap_url}: {e}")
+    return urls
 
+# ------------------------------
+# Hàm lấy nội dung trang với Playwright
+# ------------------------------
 async def fetch_page_content(browser, url: str, timeout_seconds: int):
     """
     Sử dụng Playwright để mở trang, cuộn trang cho đến khi tải xong nội dung
     (để kích hoạt lazy loading) và trả về HTML của trang.
-
-    :param browser: Đối tượng browser từ Playwright.
-    :param url: URL cần crawl.
-    :param timeout_seconds: Timeout tính bằng giây.
-    :return: HTML của trang, hoặc None nếu có lỗi.
     """
     try:
         page = await browser.new_page()
@@ -93,7 +129,6 @@ async def fetch_page_content(browser, url: str, timeout_seconds: int):
     except Exception as e:
         send_log(f"Error fetching {url} with Playwright: {e}")
         return None
-
 
 # ------------------------------
 # CrawlManager class
@@ -123,15 +158,14 @@ class CrawlManager:
         
         :return: Danh sách kết quả crawl.
         """
-        # Xử lý URL gốc: loại bỏ fragment
         start_url = urldefrag(self.start_url)[0]
         visited = set()
         visited_lock = asyncio.Lock()
         results = []
         q = asyncio.Queue()
+        # Đưa URL gốc vào queue ban đầu
         await q.put((start_url, 0))
         semaphore = asyncio.Semaphore(self.concurrency)
-        robots_cache = {}
         prefix = start_url if start_url.endswith('/') else start_url + '/'
 
         session_timeout = ClientTimeout(total=self.timeout_seconds)
@@ -141,6 +175,21 @@ class CrawlManager:
                 args=["--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"]
             )
             async with aiohttp.ClientSession(timeout=session_timeout) as session:
+                # Lấy robots.txt và sitemap từ domain của URL gốc
+                domain = urlparse(start_url).netloc
+                rp, sitemap_urls = await get_robot_parser(session, domain, session_timeout)
+                # Nếu có sitemap, lấy đệ quy các URL từ sitemap và đưa vào queue
+                if sitemap_urls:
+                    for sitemap in sitemap_urls:
+                        sitemap_link_urls = await fetch_sitemap_urls(sitemap, session, session_timeout)
+                        for url in sitemap_link_urls:
+                            # Chỉ thêm vào queue nếu thuộc cùng domain
+                            if url.startswith(prefix):
+                                await q.put((url, self.max_depth))  # Sử dụng depth cao để không duyệt lại các link đã lấy từ sitemap
+                else:
+                    send_log("No sitemap available. Proceeding with recursive crawl as per original logic.")
+
+                robots_cache = {domain: rp}
 
                 async def worker():
                     nonlocal results
@@ -158,6 +207,7 @@ class CrawlManager:
                                 if url in visited:
                                     q.task_done()
                                     continue
+                                # Nếu url không cùng phạm vi, bỏ qua
                                 if url != start_url and not url.startswith(prefix):
                                     send_log(f"Skipping out-of-scope URL: {url}")
                                     visited.add(url)
@@ -165,15 +215,15 @@ class CrawlManager:
                                     continue
                                 visited.add(url)
 
-                            domain = urlparse(url).netloc
+                            current_domain = urlparse(url).netloc
                             # Lấy robots.txt từ cache hoặc request mới
-                            if domain not in robots_cache:
-                                rp = await get_robot_parser(session, domain, session_timeout)
-                                robots_cache[domain] = rp
+                            if current_domain not in robots_cache:
+                                rp_current, _ = await get_robot_parser(session, current_domain, session_timeout)
+                                robots_cache[current_domain] = rp_current
                             else:
-                                rp = robots_cache[domain]
+                                rp_current = robots_cache[current_domain]
 
-                            if rp is not None and not rp.can_fetch("*", url):
+                            if rp_current is not None and not rp_current.can_fetch("*", url):
                                 send_log(f"Blocked by robots.txt: {url}")
                                 q.task_done()
                                 continue
@@ -204,6 +254,7 @@ class CrawlManager:
                                 send_log("Reached max pages limit. Initiating crawl cancellation.")
                                 self.cancel_event.set()
 
+                            # Nếu depth cho phép, duyệt thêm các liên kết từ trang (đệ quy theo logic cũ)
                             if depth < self.max_depth and not self.cancel_event.is_set():
                                 for a in soup.find_all("a", href=True):
                                     next_url = urldefrag(urljoin(url, a["href"]))[0]
@@ -251,7 +302,6 @@ class CrawlManager:
         self.cancel_event.set()
         send_log("Cancellation requested via CrawlManager.")
 
-
 # Global đối tượng quản lý crawl hiện tại
 current_crawler = None
 
@@ -261,14 +311,12 @@ executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 # ----------------------
 # Flask Endpoints
 # ----------------------
-
 @app.route('/')
 def index():
     """
     Render giao diện chính từ template index.html.
     """
     return render_template('index.html')
-
 
 @app.route('/start-crawl', methods=['POST'])
 def start_crawl_route():
@@ -313,7 +361,6 @@ def start_crawl_route():
     executor.submit(current_crawler.run)
     return jsonify({"message": "Crawl started."})
 
-
 @app.route('/cancel', methods=['POST'])
 def cancel():
     """
@@ -325,7 +372,6 @@ def cancel():
         return jsonify({"message": "Crawl cancellation requested. Data crawled so far is available."})
     else:
         return jsonify({"message": "No crawl in progress."}), 400
-
 
 @app.route('/stream')
 def stream():
@@ -341,12 +387,12 @@ def stream():
                 yield ": keep-alive\n\n"
     return Response(event_stream(), mimetype="text/event-stream")
 
-
 @app.route('/download')
 def download():
     """
     Download file JSON chứa kết quả crawl.
     Trả về 503 nếu crawl đang chạy, 404 nếu không có dữ liệu.
+    Tên file sẽ được đặt theo domain của URL gốc.
     """
     global current_crawler
     if current_crawler is not None and current_crawler.is_busy:
@@ -355,12 +401,18 @@ def download():
     if current_crawler is None or current_crawler.result_data is None or not current_crawler.result_data.get("pages"):
         send_log("Download requested but no crawl data is available.")
         return "No crawl data available.", 404
+
     send_log("Download requested; sending file.")
+    # Lấy domain từ URL gốc và format tên file
+    from urllib.parse import urlparse
+    domain = urlparse(current_crawler.start_url).netloc
+    # Thay đổi dấu chấm thành dấu gạch dưới cho tên file hợp lệ
+    filename = f"{domain.replace('.', '_')}_crawl_result.json"
+
     json_data = json.dumps(current_crawler.result_data, ensure_ascii=False, indent=2)
     response = Response(json_data, mimetype='application/json')
-    response.headers["Content-Disposition"] = "attachment; filename=crawl_result.json"
+    response.headers["Content-Disposition"] = f"attachment; filename={filename}"
     return response
-
 
 @app.route('/status')
 def status_endpoint():
@@ -384,7 +436,6 @@ def status_endpoint():
     except Exception as e:
         send_log(f"Error fetching server status: {e}")
         return jsonify({"cpu": "--", "ram": "--", "temperature": "--", "busy": False, "error": str(e)})
-
 
 if __name__ == '__main__':
     # Chạy ứng dụng dưới chế độ debug (chỉ dùng cho phát triển)
