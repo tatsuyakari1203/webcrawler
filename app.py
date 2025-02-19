@@ -89,7 +89,6 @@ async def fetch_sitemap_urls(sitemap_url: str, session: aiohttp.ClientSession, t
                 for sitemap in root.findall("ns:sitemap", namespace) if namespace else root.findall("sitemap"):
                     loc = sitemap.find("ns:loc", namespace).text if namespace else sitemap.find("loc").text
                     if recursive:
-                        # Đệ quy lấy URL từ sitemap con
                         urls.extend(await fetch_sitemap_urls(loc, session, timeout, recursive))
             elif root.tag.endswith("urlset"):
                 for url in root.findall("ns:url", namespace) if namespace else root.findall("url"):
@@ -136,14 +135,15 @@ async def fetch_page_content(browser, url: str, timeout_seconds: int):
 class CrawlManager:
     """
     Quản lý quá trình crawl:
-      - Thiết lập các tham số (URL gốc, độ sâu, concurrency, timeout, max_pages).
+      - Thiết lập các tham số (URL gốc, độ sâu, concurrency, timeout, max_pages, max_tokens).
       - Quản lý queue và thực hiện crawl đồng thời.
       - Lưu kết quả crawl vào result_data.
-      - Hỗ trợ hủy crawl.
+      - Khi có lệnh stop hoặc đạt giới hạn, các task đang chạy sẽ bị hủy ngay lập tức
+        và dữ liệu đã crawl được lưu lại để người dùng download.
     """
     def __init__(self, start_url, max_tokens, max_depth, concurrency, timeout_seconds, max_pages):
         self.start_url = start_url
-        self.max_tokens = max_tokens
+        self.max_tokens = max_tokens        # Giới hạn tổng số token cho toàn bộ crawl
         self.max_depth = max_depth
         self.concurrency = concurrency
         self.timeout_seconds = timeout_seconds
@@ -151,12 +151,12 @@ class CrawlManager:
         self.result_data = None
         self.cancel_event = asyncio.Event()
         self.is_busy = True
+        self.token_count = 0  # Tổng số token đã crawl
 
     async def crawl(self):
         """
         Thực hiện quá trình crawl.
-        
-        :return: Danh sách kết quả crawl.
+        Trả về danh sách kết quả crawl đã thu thập được.
         """
         start_url = urldefrag(self.start_url)[0]
         visited = set()
@@ -185,7 +185,7 @@ class CrawlManager:
                         for url in sitemap_link_urls:
                             # Chỉ thêm vào queue nếu thuộc cùng domain
                             if url.startswith(prefix):
-                                await q.put((url, self.max_depth))  # Sử dụng depth cao để không duyệt lại các link đã lấy từ sitemap
+                                await q.put((url, self.max_depth))
                 else:
                     send_log("No sitemap available. Proceeding with recursive crawl as per original logic.")
 
@@ -194,14 +194,19 @@ class CrawlManager:
                 async def worker():
                     nonlocal results
                     while True:
+                        # Nếu có lệnh hủy, thoát ngay
+                        if self.cancel_event.is_set():
+                            break
                         try:
                             try:
-                                url, depth = await asyncio.wait_for(q.get(), timeout=1)
+                                url, depth = await asyncio.wait_for(q.get(), timeout=0.5)
                             except asyncio.TimeoutError:
-                                if self.cancel_event.is_set():
-                                    send_log("Crawl cancellation detected. Data crawled so far is available.")
-                                    break
                                 continue
+
+                            # Kiểm tra ngay sau khi lấy job
+                            if self.cancel_event.is_set():
+                                q.task_done()
+                                break
 
                             async with visited_lock:
                                 if url in visited:
@@ -239,22 +244,27 @@ class CrawlManager:
                             soup = BeautifulSoup(content, "html.parser")
                             title = soup.title.string.strip() if soup.title and soup.title.string else ""
                             text_content = soup.get_text(separator=" ", strip=True)
-                            if self.max_tokens is not None:
-                                tokens = text_content.split()
-                                if len(tokens) > self.max_tokens:
-                                    text_content = " ".join(tokens[:self.max_tokens])
+                            tokens = text_content.split()
+                            page_token_count = len(tokens)
+                            self.token_count += page_token_count
+                            # Nếu vượt quá giới hạn token, hủy crawl ngay
+                            if self.token_count >= self.max_tokens:
+                                send_log("Token limit reached. Initiating immediate crawl cancellation.")
+                                self.cancel_event.set()
+
                             results.append({
                                 "url": url,
                                 "title": title,
-                                "content": text_content
+                                "content": text_content if self.token_count < self.max_tokens else "Token limit reached."
                             })
                             send_log(f"Completed: {url}")
 
+                            # Nếu đạt đến giới hạn số trang, hủy crawl ngay
                             if len(results) >= self.max_pages:
-                                send_log("Reached max pages limit. Initiating crawl cancellation.")
+                                send_log("Reached max pages limit. Initiating immediate crawl cancellation.")
                                 self.cancel_event.set()
 
-                            # Nếu depth cho phép, duyệt thêm các liên kết từ trang (đệ quy theo logic cũ)
+                            # Nếu depth cho phép, duyệt thêm các liên kết từ trang
                             if depth < self.max_depth and not self.cancel_event.is_set():
                                 for a in soup.find_all("a", href=True):
                                     next_url = urldefrag(urljoin(url, a["href"]))[0]
@@ -265,28 +275,38 @@ class CrawlManager:
                         except Exception as e:
                             send_log(f"Worker error processing URL: {url if 'url' in locals() else 'Unknown'} - {e}")
                             q.task_done()
+                    return
 
                 # Tạo worker tasks
                 worker_tasks = [asyncio.create_task(worker()) for _ in range(self.concurrency)]
                 try:
-                    await q.join()
+                    # Vòng lặp chính kiểm tra trạng thái của cancel_event và queue
+                    while not self.cancel_event.is_set():
+                        if q.empty():
+                            await asyncio.sleep(0.1)
+                        else:
+                            await asyncio.sleep(0.1)
                 except Exception as e:
-                    send_log(f"Queue join error: {e}")
+                    send_log(f"Error in main loop: {e}")
+
+                # Khi có lệnh hủy, hủy ngay tất cả các worker tasks
                 for task in worker_tasks:
                     task.cancel()
+                await asyncio.gather(*worker_tasks, return_exceptions=True)
                 await browser.close()
                 return results
 
     def run(self):
         """
         Chạy crawl trong một event loop mới, tách biệt với event loop của Flask.
+        Sau khi crawl dừng (do hủy hoặc hoàn thành), dữ liệu đã crawl sẽ được lưu lại.
         """
         new_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(new_loop)
         try:
             results = new_loop.run_until_complete(self.crawl())
             self.result_data = {"pages": results if results is not None else []}
-            send_log(f"Crawl completed. {len(results)} pages found.")
+            send_log(f"Crawl completed. {len(results)} pages found. Total tokens: {self.token_count}")
         except Exception as e:
             send_log(f"Crawl terminated with error: {e}")
             self.result_data = {"pages": []}
@@ -297,7 +317,7 @@ class CrawlManager:
 
     def cancel(self):
         """
-        Yêu cầu hủy quá trình crawl.
+        Yêu cầu hủy quá trình crawl ngay lập tức.
         """
         self.cancel_event.set()
         send_log("Cancellation requested via CrawlManager.")
@@ -365,6 +385,7 @@ def start_crawl_route():
 def cancel():
     """
     Hủy quá trình crawl nếu đang chạy.
+    Khi hủy, dữ liệu đã crawl sẽ được giữ lại để download.
     """
     global current_crawler
     if current_crawler is not None and current_crawler.is_busy:
@@ -403,10 +424,8 @@ def download():
         return "No crawl data available.", 404
 
     send_log("Download requested; sending file.")
-    # Lấy domain từ URL gốc và format tên file
     from urllib.parse import urlparse
     domain = urlparse(current_crawler.start_url).netloc
-    # Thay đổi dấu chấm thành dấu gạch dưới cho tên file hợp lệ
     filename = f"{domain.replace('.', '_')}_crawl_result.json"
 
     json_data = json.dumps(current_crawler.result_data, ensure_ascii=False, indent=2)
