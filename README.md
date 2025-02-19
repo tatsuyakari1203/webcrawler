@@ -166,8 +166,11 @@ This will start the server at `http://0.0.0.0:5006` in debug mode. **Do not use 
 
 ## License
 
-This project is open for you to modify, extend, or redistribute. If you use it for commercial purposes, please check the licenses of its dependencies (Flask, Playwright, Gunicorn, etc.) to ensure compliance.
+This project is released under the MIT License and is free for modification, extension, and redistribution. You are allowed to use it for both personal and commercial purposes, provided you adhere to the terms of the MIT License, including preserving the copyright.
 
+Please ensure you review and comply with the licenses of all dependencies (e.g., Flask, Playwright, Gunicorn, etc.) if you use this project commercially.
+
+This project includes code and support generated with assistance from ChatGPT.
 ---
 
 **Thank you for using Web Crawler!**  
