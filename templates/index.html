@@ -73,7 +73,7 @@
         <i data-feather="thermometer" class="w-4 h-4 mr-1"></i> Nhiệt độ: --°C
       </span>
       <span id="busy-status" class="flex items-center">
-        <i data-feather="activity" class="w-4 h-4 mr-1"></i> Trạng thái: --
+        <i data-feather="activity" class="w-4 h-4 mr-1"></i> Trạng thái: -- 
       </span>
     </div>
 
@@ -179,7 +179,8 @@
         <div>
           <div class="flex items-center justify-between mb-2">
             <h3 class="text-lg font-semibold">Log Process</h3>
-            <span id="log-status" class="px-3 py-1 text-xs font-medium rounded-md bg-gray-700 text-gray-300"></span>
+            <!-- Phần hiển thị trạng thái crawl được tối ưu -->
+            <span id="log-status" class="px-3 py-1 text-xs font-medium rounded-md bg-gray-700 text-gray-300">Idle</span>
           </div>
           <div id="log" class="p-4 bg-input rounded-md border border-gray-600 font-mono text-sm h-48 overflow-y-auto"></div>
         </div>
@@ -263,8 +264,8 @@
       btnSpinner.classList.remove("hidden");
       cancelBtn.classList.remove("hidden");
       downloadBtn.classList.add("hidden");
-      logStatus.textContent = "Đang xử lý...";
-      logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-gray-700 text-gray-300";
+      logStatus.textContent = "Crawl started";
+      logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-accent text-gray-900";
       progressText.textContent = "Tiến trình: 0 pages crawled";
       pagesCrawled = 0;
       logEl.innerHTML = "";
@@ -293,23 +294,38 @@
           feather.replace();
           logEl.scrollTop = logEl.scrollHeight;
 
-          if (message.includes("Completed:")) {
+          // Cập nhật trạng thái dựa trên nội dung log
+          if (message.includes("Crawl process initiated.")) {
+            logStatus.textContent = "Crawl initiated";
+            logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-info text-gray-900";
+          } else if (message.includes("Crawling:")) {
+            logStatus.textContent = "Processing...";
+            logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-accent text-gray-900";
+          } else if (message.includes("Completed:")) {
             pagesCrawled++;
             progressText.textContent = `Tiến trình: ${pagesCrawled} pages crawled`;
-          }
-          if (message.includes("Crawl completed.")) {
+            logStatus.textContent = "Page completed";
+            logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-success text-gray-900";
+          } else if (message.includes("Reached max pages limit") || message.includes("Token limit reached")) {
+            logStatus.textContent = "Limit reached";
+            logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-error text-gray-50";
+          } else if (message.includes("Crawl completed.")) {
+            logStatus.textContent = "Crawl completed";
+            logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-success text-gray-900";
             progressText.textContent = `Tiến trình: ${pagesCrawled} pages crawled (Completed)`;
             cancelBtn.classList.add("hidden");
             downloadBtn.classList.remove("hidden");
             eventSource.close();
-          }
-          if (message.includes("Crawl cancellation detected.")) {
+          } else if (message.includes("Crawl cancellation detected") || message.includes("Cancellation requested")) {
+            logStatus.textContent = "Crawl cancelled";
+            logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-error text-gray-50";
             progressText.textContent = `Crawl đã bị hủy sau ${pagesCrawled} pages crawled. Dữ liệu vẫn có sẵn.`;
             cancelBtn.classList.add("hidden");
             downloadBtn.classList.remove("hidden");
             eventSource.close();
-          }
-          if (message.includes("Server is busy")) {
+          } else if (message.includes("Server is busy")) {
+            logStatus.textContent = "Server busy";
+            logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-error text-gray-50";
             progressText.textContent = "Server đang bận. Vui lòng thử lại sau.";
             eventSource.close();
           }
@@ -327,7 +343,7 @@
           showNotification(data.error, "error");
         } else {
           logStatus.textContent = "Crawl started";
-          logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-success text-gray-900";
+          logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-accent text-gray-900";
         }
       } catch (error) {
         showNotification(error.toString(), "error");
