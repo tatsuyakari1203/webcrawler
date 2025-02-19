@@ -249,10 +249,11 @@ class CrawlManager:
                 
                 async def worker():
                     nonlocal results
-                    while not self.cancel_event.is_set():
+                    while True:
                         try:
                             url, depth = await asyncio.wait_for(q.get(), timeout=0.5)
                         except asyncio.TimeoutError:
+                            # Nếu hàng đợi rỗng, tiếp tục chờ
                             continue
                         if self.cancel_event.is_set():
                             q.task_done()
@@ -310,16 +311,12 @@ class CrawlManager:
                                     if next_url not in visited:
                                         await q.put((next_url, depth+1))
                         q.task_done()
-                    return
+                # Tạo các worker tasks
                 worker_tasks = [asyncio.create_task(worker()) for _ in range(self.concurrency)]
-                try:
-                    while not self.cancel_event.is_set():
-                        if q.empty():
-                            await asyncio.sleep(0.1)
-                        else:
-                            await asyncio.sleep(0.1)
-                except Exception as e:
-                    send_log(f"Error in main loop: {e}", logging.ERROR)
+                
+                # Thay vì vòng lặp vô hạn, đợi cho đến khi hàng đợi được xử lý hoàn toàn
+                await q.join()
+                # Sau khi hoàn thành queue, hủy tất cả worker
                 for task in worker_tasks:
                     task.cancel()
                 await asyncio.gather(*worker_tasks, return_exceptions=True)
