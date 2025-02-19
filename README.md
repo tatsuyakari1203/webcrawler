@@ -49,12 +49,16 @@ This **Web Crawler** project enables you to crawl data from documentation websit
 ---
 
 ## Installation
+---
 
-1. **Clone or Download the Project**
+1. **Clone or Download the Project**  
+   Open your terminal and run:
    ```bash
-   git clone <repository-url>
-   cd <project-directory>
+   git clone https://github.com/tatsuyakari1203/webcrawler.git
+   cd webcrawler
    ```
+   
+This will clone the repository to your local machine and change your working directory to the project folder.
 
 2. **Install Dependencies**  
    This project requires Python 3.10+ (or a suitable Python 3.x environment). You can install dependencies either by using the included `run.sh` script or manually:
