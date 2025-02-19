@@ -253,7 +253,9 @@ class CrawlManager:
                         try:
                             url, depth = await asyncio.wait_for(q.get(), timeout=0.5)
                         except asyncio.TimeoutError:
-                            # Nếu hàng đợi rỗng, tiếp tục chờ
+                            # Nếu hàng đợi rỗng, kiểm tra cancel_event
+                            if self.cancel_event.is_set():
+                                break
                             continue
                         if self.cancel_event.is_set():
                             q.task_done()
@@ -311,10 +313,21 @@ class CrawlManager:
                                     if next_url not in visited:
                                         await q.put((next_url, depth+1))
                         q.task_done()
+
                 # Tạo các worker tasks
                 worker_tasks = [asyncio.create_task(worker()) for _ in range(self.concurrency)]
                 
-                # Thay vì vòng lặp vô hạn, đợi cho đến khi hàng đợi được xử lý hoàn toàn
+                # Nếu hủy, giải phóng các mục trong queue để tránh chờ mãi
+                while not q.empty():
+                    if self.cancel_event.is_set():
+                        try:
+                            q.get_nowait()
+                            q.task_done()
+                        except Exception:
+                            break
+                    else:
+                        await asyncio.sleep(0.1)
+                # Đợi hàng đợi được xử lý hoàn toàn
                 await q.join()
                 # Sau khi hoàn thành queue, hủy tất cả worker
                 for task in worker_tasks:
