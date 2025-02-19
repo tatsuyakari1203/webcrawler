@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="vi" class="dark">
+<html lang="en" class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -29,7 +29,7 @@
   <!-- Google Font: Inter -->
   <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
   <style>
-    /* Custom scrollbar cho vùng log */
+    /* Custom scrollbar for the log area */
     #log::-webkit-scrollbar {
       width: 8px;
     }
@@ -54,15 +54,15 @@
         <i data-feather="search" class="w-6 h-6 text-accent"></i>
         <span class="text-xl font-semibold">Web Crawler</span>
       </div>
-      <span class="text-sm text-gray-400">Crawl dữ liệu Docs</span>
+      <span class="text-sm text-gray-400">Crawl Documentation Data</span>
     </div>
   </header>
 
   <!-- Main Container -->
   <main class="max-w-5xl mx-auto px-4 py-10">
     <!-- Server Status -->
-    <div id="server-status" class="mb-6 p-4 bg-card rounded-lg shadow text-sm flex items-center space-x-6">
-      <span class="font-medium">Tình trạng Server:</span>
+    <div id="server-status" class="mb-6 p-4 bg-card rounded-lg shadow text-sm flex flex-wrap items-center gap-4">
+      <span class="font-medium">Server Status:</span>
       <span id="cpu-status" class="flex items-center">
         <i data-feather="cpu" class="w-4 h-4 mr-1"></i> CPU: --%
       </span>
@@ -70,31 +70,31 @@
         <i data-feather="database" class="w-4 h-4 mr-1"></i> RAM: --%
       </span>
       <span id="temp-status" class="flex items-center">
-        <i data-feather="thermometer" class="w-4 h-4 mr-1"></i> Nhiệt độ: --°C
+        <i data-feather="thermometer" class="w-4 h-4 mr-1"></i> Temp: --°C
       </span>
       <span id="busy-status" class="flex items-center">
-        <i data-feather="activity" class="w-4 h-4 mr-1"></i> Trạng thái: -- 
+        <i data-feather="activity" class="w-4 h-4 mr-1"></i> Status: --
       </span>
     </div>
 
     <div class="bg-card rounded-xl shadow p-6 md:p-8">
-      <h2 class="text-2xl font-semibold mb-6 text-center">Crawler Dữ liệu Docs</h2>
+      <h2 class="text-2xl font-semibold mb-6 text-center">Documentation Data Crawler</h2>
       
-      <!-- Thông báo lỗi / thông tin -->
+      <!-- Notification Message -->
       <div id="notification" class="mb-4 hidden p-3 rounded-md text-sm"></div>
       
-      <!-- Form nhập thông tin crawl -->
+      <!-- Crawl Form -->
       <form id="crawl-form" class="space-y-5">
         <!-- URL Documentation -->
         <div>
-          <label for="url" class="block mb-1 text-gray-400">URL Documentation</label>
+          <label for="url" class="block mb-1 text-gray-400">Documentation URL</label>
           <input 
             type="url" 
             id="url" 
             class="w-full px-4 py-2 bg-input border border-gray-600 rounded-md focus:ring focus:ring-accent placeholder-gray-500 text-gray-200" 
             placeholder="https://supabase.com/docs" 
             required>
-          <p class="text-xs text-gray-500 mt-1">Chỉ crawl các subpage thuộc URL gốc (ví dụ: https://supabase.com/docs/…)</p>
+          <p class="text-xs text-gray-500 mt-1">Only crawl subpages under the root URL (e.g., https://supabase.com/docs/…)</p>
         </div>
         
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
@@ -107,7 +107,7 @@
               class="w-full px-4 py-2 bg-input border border-gray-600 rounded-md focus:ring focus:ring-accent placeholder-gray-500 text-gray-200" 
               value="2000000" 
               placeholder="2000000">
-            <p class="text-xs text-gray-500 mt-1">Giới hạn số token của nội dung mỗi trang</p>
+            <p class="text-xs text-gray-500 mt-1">Limit tokens per page content</p>
           </div>
           <!-- Max Depth -->
           <div>
@@ -118,7 +118,7 @@
               class="w-full px-4 py-2 bg-input border border-gray-600 rounded-md focus:ring focus:ring-accent placeholder-gray-500 text-gray-200" 
               value="2" 
               placeholder="2">
-            <p class="text-xs text-gray-500 mt-1">Độ sâu crawl (mặc định: 2)</p>
+            <p class="text-xs text-gray-500 mt-1">Crawl depth (default: 2)</p>
           </div>
           <!-- Concurrency -->
           <div>
@@ -129,7 +129,7 @@
               class="w-full px-4 py-2 bg-input border border-gray-600 rounded-md focus:ring focus:ring-accent placeholder-gray-500 text-gray-200" 
               value="3" 
               placeholder="3">
-            <p class="text-xs text-gray-500 mt-1">Số lượng request đồng thời</p>
+            <p class="text-xs text-gray-500 mt-1">Number of simultaneous requests</p>
           </div>
           <!-- Timeout -->
           <div>
@@ -140,7 +140,7 @@
               class="w-full px-4 py-2 bg-input border border-gray-600 rounded-md focus:ring focus:ring-accent placeholder-gray-500 text-gray-200" 
               value="10" 
               placeholder="10">
-            <p class="text-xs text-gray-500 mt-1">Thời gian timeout cho mỗi request</p>
+            <p class="text-xs text-gray-500 mt-1">Timeout for each request</p>
           </div>
           <!-- Max Pages -->
           <div class="sm:col-span-2">
@@ -151,17 +151,17 @@
               class="w-full px-4 py-2 bg-input border border-gray-600 rounded-md focus:ring focus:ring-accent placeholder-gray-500 text-gray-200" 
               value="100" 
               placeholder="100">
-            <p class="text-xs text-gray-500 mt-1">Giới hạn số trang crawl</p>
+            <p class="text-xs text-gray-500 mt-1">Maximum number of pages to crawl</p>
           </div>
         </div>
         
-        <!-- Nút Thực hiện và Hủy Crawl -->
+        <!-- Start and Cancel Buttons -->
         <div class="flex flex-col sm:flex-row items-center justify-between gap-3">
           <button 
             type="submit" 
             id="crawl-btn" 
             class="w-full sm:w-auto flex items-center justify-center bg-accent hover:bg-blue-500 text-white font-medium px-6 py-2 rounded-md transition-colors disabled:opacity-70">
-            <span id="btn-text">Bắt đầu Crawl</span>
+            <span id="btn-text">Start Crawl</span>
             <i data-feather="loader" id="btn-spinner" class="w-5 h-5 ml-2 animate-spin hidden"></i>
           </button>
           <button 
@@ -169,17 +169,16 @@
             id="cancel-btn" 
             class="w-full sm:w-auto flex items-center justify-center bg-gray-600 hover:bg-gray-500 text-white font-medium px-6 py-2 rounded-md transition-colors hidden">
             <i data-feather="x-circle" class="w-5 h-5 mr-2"></i>
-            <span>Hủy Crawl</span>
+            <span>Cancel Crawl</span>
           </button>
         </div>
       </form>
       
-      <!-- Log & Tiến trình -->
+      <!-- Log & Progress -->
       <div class="mt-8 space-y-5">
         <div>
           <div class="flex items-center justify-between mb-2">
             <h3 class="text-lg font-semibold">Log Process</h3>
-            <!-- Phần hiển thị trạng thái crawl được tối ưu -->
             <span id="log-status" class="px-3 py-1 text-xs font-medium rounded-md bg-gray-700 text-gray-300">Idle</span>
           </div>
           <div id="log" class="p-4 bg-input rounded-md border border-gray-600 font-mono text-sm h-48 overflow-y-auto"></div>
@@ -188,29 +187,29 @@
           <div class="w-full bg-gray-700 rounded-full h-2.5">
             <div id="progress-bar" class="bg-accent h-2.5 rounded-full" style="width: 100%;"></div>
           </div>
-          <p id="progress-text" class="text-sm text-gray-400 mt-2">Tiến trình: 0 pages crawled</p>
+          <p id="progress-text" class="text-sm text-gray-400 mt-2">Progress: 0 pages crawled</p>
         </div>
       </div>
       
-      <!-- Nút Tải xuống JSON (chỉ hiển thị khi crawl hoàn thành) -->
+      <!-- Download JSON Button (visible after crawl completion) -->
       <div class="mt-8 text-center">
         <a 
           id="download" 
           href="/download" 
           class="inline-flex items-center bg-green-600 hover:bg-green-500 text-white font-medium px-6 py-2 rounded-md transition-colors hidden">
           <i data-feather="download-cloud" class="w-5 h-5 mr-2"></i>
-          Tải xuống JSON
+          Download JSON
         </a>
       </div>
     </div>
   </main>
   
-  <!-- Script cập nhật giao diện & tình trạng server -->
+  <!-- Scripts for UI updates and server status -->
   <script>
-    // Khởi tạo feather icons
+    // Initialize Feather icons
     feather.replace();
 
-    // Lấy các phần tử DOM
+    // Get DOM elements
     const form = document.getElementById("crawl-form");
     const notification = document.getElementById("notification");
     const logEl = document.getElementById("log");
@@ -229,44 +228,42 @@
     let eventSource;
     let pagesCrawled = 0;
 
-    // Hàm cập nhật thông số server (CPU, RAM, Nhiệt độ, Trạng thái) bằng đệ quy setTimeout
+    // Update server status periodically
     async function updateServerStatus() {
       try {
         const res = await fetch('/status');
-        if (!res.ok) throw new Error("Không lấy được thông tin server");
+        if (!res.ok) throw new Error("Unable to fetch server status");
         const data = await res.json();
         cpuStatus.innerHTML = `<i data-feather="cpu" class="w-4 h-4 mr-1"></i> CPU: ${data.cpu}%`;
         ramStatus.innerHTML = `<i data-feather="database" class="w-4 h-4 mr-1"></i> RAM: ${data.ram}%`;
-        tempStatus.innerHTML = `<i data-feather="thermometer" class="w-4 h-4 mr-1"></i> Nhiệt độ: ${data.temperature}°C`;
-        if (data.busy) {
-          busyStatus.innerHTML = `<i data-feather="activity" class="w-4 h-4 mr-1"></i> Trạng thái: Busy`;
-        } else {
-          busyStatus.innerHTML = `<i data-feather="activity" class="w-4 h-4 mr-1"></i> Trạng thái: Idle`;
-        }
+        tempStatus.innerHTML = `<i data-feather="thermometer" class="w-4 h-4 mr-1"></i> Temp: ${data.temperature}°C`;
+        busyStatus.innerHTML = data.busy 
+          ? `<i data-feather="activity" class="w-4 h-4 mr-1"></i> Status: Busy`
+          : `<i data-feather="activity" class="w-4 h-4 mr-1"></i> Status: Idle`;
       } catch (error) {
         cpuStatus.innerHTML = `<i data-feather="cpu" class="w-4 h-4 mr-1"></i> CPU: --%`;
         ramStatus.innerHTML = `<i data-feather="database" class="w-4 h-4 mr-1"></i> RAM: --%`;
-        tempStatus.innerHTML = `<i data-feather="thermometer" class="w-4 h-4 mr-1"></i> Nhiệt độ: --°C`;
-        busyStatus.innerHTML = `<i data-feather="activity" class="w-4 h-4 mr-1"></i> Trạng thái: --`;
+        tempStatus.innerHTML = `<i data-feather="thermometer" class="w-4 h-4 mr-1"></i> Temp: --°C`;
+        busyStatus.innerHTML = `<i data-feather="activity" class="w-4 h-4 mr-1"></i> Status: --`;
       }
       feather.replace();
       setTimeout(updateServerStatus, 5000);
     }
     updateServerStatus();
 
-    // Xử lý form submit để bắt đầu crawl
+    // Handle form submission to start crawl
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       notification.classList.add("hidden");
       notification.textContent = "";
       crawlBtn.disabled = true;
-      btnText.textContent = "Đang xử lý...";
+      btnText.textContent = "Processing...";
       btnSpinner.classList.remove("hidden");
       cancelBtn.classList.remove("hidden");
       downloadBtn.classList.add("hidden");
       logStatus.textContent = "Crawl started";
-      logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-accent text-gray-900";
-      progressText.textContent = "Tiến trình: 0 pages crawled";
+      logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-info text-gray-900";
+      progressText.textContent = "Progress: 0 pages crawled";
       pagesCrawled = 0;
       logEl.innerHTML = "";
 
@@ -278,7 +275,7 @@
       const max_pages = document.getElementById("max_pages").value;
 
       if (!url) {
-        showNotification("Vui lòng nhập URL hợp lệ!", "error");
+        showNotification("Please enter a valid URL!", "error");
         resetButton();
         return;
       }
@@ -294,7 +291,6 @@
           feather.replace();
           logEl.scrollTop = logEl.scrollHeight;
 
-          // Cập nhật trạng thái dựa trên nội dung log
           if (message.includes("Crawl process initiated.")) {
             logStatus.textContent = "Crawl initiated";
             logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-info text-gray-900";
@@ -303,7 +299,7 @@
             logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-accent text-gray-900";
           } else if (message.includes("Completed:")) {
             pagesCrawled++;
-            progressText.textContent = `Tiến trình: ${pagesCrawled} pages crawled`;
+            progressText.textContent = `Progress: ${pagesCrawled} pages crawled`;
             logStatus.textContent = "Page completed";
             logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-success text-gray-900";
           } else if (message.includes("Reached max pages limit") || message.includes("Token limit reached")) {
@@ -312,21 +308,21 @@
           } else if (message.includes("Crawl completed.")) {
             logStatus.textContent = "Crawl completed";
             logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-success text-gray-900";
-            progressText.textContent = `Tiến trình: ${pagesCrawled} pages crawled (Completed)`;
+            progressText.textContent = `Progress: ${pagesCrawled} pages crawled (Completed)`;
             cancelBtn.classList.add("hidden");
             downloadBtn.classList.remove("hidden");
             eventSource.close();
-          } else if (message.includes("Crawl cancellation detected") || message.includes("Cancellation requested")) {
+          } else if (message.includes("Cancellation requested")) {
             logStatus.textContent = "Crawl cancelled";
             logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-error text-gray-50";
-            progressText.textContent = `Crawl đã bị hủy sau ${pagesCrawled} pages crawled. Dữ liệu vẫn có sẵn.`;
+            progressText.textContent = `Crawl cancelled after ${pagesCrawled} pages crawled. Data is available.`;
             cancelBtn.classList.add("hidden");
             downloadBtn.classList.remove("hidden");
             eventSource.close();
           } else if (message.includes("Server is busy")) {
             logStatus.textContent = "Server busy";
             logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-error text-gray-50";
-            progressText.textContent = "Server đang bận. Vui lòng thử lại sau.";
+            progressText.textContent = "Server is busy. Please try again later.";
             eventSource.close();
           }
         }
@@ -352,19 +348,19 @@
       }
     });
 
-    // Xử lý nút hủy crawl
+    // Cancel button event listener
     cancelBtn.addEventListener("click", async () => {
       try {
         const response = await fetch("/cancel", { method: "POST" });
         const data = await response.json();
-        showNotification(data.message || "Crawl đã được hủy thành công.", "info");
+        showNotification(data.message || "Crawl cancelled successfully.", "info");
         cancelBtn.classList.add("hidden");
       } catch (error) {
         showNotification(error.toString(), "error");
       }
     });
 
-    // Hàm hiển thị thông báo
+    // Notification display function
     function showNotification(message, type = "error") {
       notification.textContent = message;
       if (type === "error") {
@@ -377,10 +373,10 @@
       notification.classList.remove("hidden");
     }
 
-    // Hàm reset trạng thái nút
+    // Reset button state function
     function resetButton() {
       crawlBtn.disabled = false;
-      btnText.textContent = "Bắt đầu Crawl";
+      btnText.textContent = "Start Crawl";
       btnSpinner.classList.add("hidden");
     }
   </script>
