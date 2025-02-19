@@ -44,6 +44,27 @@
     #log::-webkit-scrollbar-thumb:hover {
       background: #3a3a3a;
     }
+    /* Container thông báo đẩy hiển thị tại vị trí cũ (trong header của log process) */
+    #log-notifications {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    /* Animation keyframes */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeOut {
+      from { opacity: 1; transform: translateY(0); }
+      to { opacity: 0; transform: translateY(-10px); }
+    }
+    .fade-in {
+      animation: fadeIn 0.5s ease-out forwards;
+    }
+    .fade-out {
+      animation: fadeOut 0.5s ease-in forwards;
+    }
   </style>
 </head>
 <body class="bg-bgDark text-gray-300 font-inter">
@@ -80,7 +101,7 @@
     <div class="bg-card rounded-xl shadow p-6 md:p-8">
       <h2 class="text-2xl font-semibold mb-6 text-center">Documentation Data Crawler</h2>
       
-      <!-- Notification Message -->
+      <!-- Notification Message (nếu cần hiển thị thông báo khác ngoài push notification) -->
       <div id="notification" class="mb-4 hidden p-3 rounded-md text-sm"></div>
       
       <!-- Crawl Form -->
@@ -179,7 +200,8 @@
         <div>
           <div class="flex items-center justify-between mb-2">
             <h3 class="text-lg font-semibold">Log Process</h3>
-            <span id="log-status" class="px-3 py-1 text-xs font-medium rounded-md bg-gray-700 text-gray-300">Idle</span>
+            <!-- Container thông báo đẩy tại vị trí cũ -->
+            <div id="log-notifications"></div>
           </div>
           <div id="log" class="p-4 bg-input rounded-md border border-gray-600 font-mono text-sm h-48 overflow-y-auto"></div>
         </div>
@@ -213,7 +235,6 @@
     const form = document.getElementById("crawl-form");
     const notification = document.getElementById("notification");
     const logEl = document.getElementById("log");
-    const logStatus = document.getElementById("log-status");
     const crawlBtn = document.getElementById("crawl-btn");
     const btnText = document.getElementById("btn-text");
     const btnSpinner = document.getElementById("btn-spinner");
@@ -228,7 +249,53 @@
     let eventSource;
     let pagesCrawled = 0;
 
-    // Update server status periodically
+    // Hàm thêm thông báo đẩy với animation xuất hiện và biến mất, hiển thị tại vị trí cũ
+    function addNotification(message, type = "info") {
+      const container = document.getElementById("log-notifications");
+      const notif = document.createElement("div");
+
+      // Xác định màu sắc theo loại thông báo
+      let bgColor, textColor;
+      switch (type) {
+        case "error":
+          bgColor = "bg-error";
+          textColor = "text-gray-50";
+          break;
+        case "success":
+          bgColor = "bg-success";
+          textColor = "text-gray-900";
+          break;
+        case "info":
+        default:
+          bgColor = "bg-info";
+          textColor = "text-gray-900";
+          break;
+      }
+
+      // Thiết lập class và nội dung cho thông báo, thêm hiệu ứng fade-in
+      notif.className = `px-3 py-1 text-xs font-medium rounded-md ${bgColor} ${textColor} shadow-md fade-in`;
+      notif.textContent = message;
+
+      // Thêm thông báo mới vào container
+      container.appendChild(notif);
+
+      // Nếu vượt quá 3 thông báo, xóa thông báo đầu tiên (cũ nhất)
+      if (container.children.length > 3) {
+        container.removeChild(container.firstChild);
+      }
+
+      // Sau 5 giây, thêm class fade-out rồi xóa sau khi animation kết thúc (0.5s)
+      setTimeout(() => {
+        notif.classList.add("fade-out");
+        setTimeout(() => {
+          if (container.contains(notif)) {
+            container.removeChild(notif);
+          }
+        }, 500);
+      }, 5000);
+    }
+
+    // Cập nhật trạng thái server định kỳ
     async function updateServerStatus() {
       try {
         const res = await fetch('/status');
@@ -251,7 +318,7 @@
     }
     updateServerStatus();
 
-    // Handle form submission to start crawl
+    // Xử lý form submit để bắt đầu crawl
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       notification.classList.add("hidden");
@@ -261,8 +328,6 @@
       btnSpinner.classList.remove("hidden");
       cancelBtn.classList.remove("hidden");
       downloadBtn.classList.add("hidden");
-      logStatus.textContent = "Crawl started";
-      logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-info text-gray-900";
       progressText.textContent = "Progress: 0 pages crawled";
       pagesCrawled = 0;
       logEl.innerHTML = "";
@@ -275,7 +340,7 @@
       const max_pages = document.getElementById("max_pages").value;
 
       if (!url) {
-        showNotification("Please enter a valid URL!", "error");
+        addNotification("Please enter a valid URL!", "error");
         resetButton();
         return;
       }
@@ -284,6 +349,8 @@
       eventSource.onmessage = (e) => {
         if (e.data && !e.data.startsWith(":")) {
           const message = e.data;
+          
+          // Ghi log cho quá trình crawl (nếu cần hiển thị log bên dưới)
           const logEntry = document.createElement("div");
           logEntry.className = "flex items-center text-gray-300 mb-1";
           logEntry.innerHTML = `<i data-feather="chevron-right" class="w-4 h-4 mr-1"></i> ${message}`;
@@ -291,38 +358,30 @@
           feather.replace();
           logEl.scrollTop = logEl.scrollHeight;
 
+          // Dựa theo nội dung message, hiển thị thông báo đẩy tại vị trí cũ với animation
           if (message.includes("Crawl process initiated.")) {
-            logStatus.textContent = "Crawl initiated";
-            logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-info text-gray-900";
+            addNotification("Crawl initiated", "info");
           } else if (message.includes("Crawling:")) {
-            logStatus.textContent = "Processing...";
-            logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-accent text-gray-900";
+            addNotification("Processing...", "info");
           } else if (message.includes("Completed:")) {
             pagesCrawled++;
             progressText.textContent = `Progress: ${pagesCrawled} pages crawled`;
-            logStatus.textContent = "Page completed";
-            logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-success text-gray-900";
+            addNotification("Page completed", "success");
           } else if (message.includes("Reached max pages limit") || message.includes("Token limit reached")) {
-            logStatus.textContent = "Limit reached";
-            logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-error text-gray-50";
+            addNotification("Limit reached", "error");
           } else if (message.includes("Crawl completed.")) {
-            logStatus.textContent = "Crawl completed";
-            logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-success text-gray-900";
+            addNotification("Crawl completed", "success");
             progressText.textContent = `Progress: ${pagesCrawled} pages crawled (Completed)`;
             cancelBtn.classList.add("hidden");
             downloadBtn.classList.remove("hidden");
             eventSource.close();
           } else if (message.includes("Cancellation requested")) {
-            logStatus.textContent = "Crawl cancelled";
-            logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-error text-gray-50";
-            progressText.textContent = `Crawl cancelled after ${pagesCrawled} pages crawled. Data is available.`;
+            addNotification(`Crawl cancelled after ${pagesCrawled} pages crawled. Data is available.`, "error");
             cancelBtn.classList.add("hidden");
             downloadBtn.classList.remove("hidden");
             eventSource.close();
           } else if (message.includes("Server is busy")) {
-            logStatus.textContent = "Server busy";
-            logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-error text-gray-50";
-            progressText.textContent = "Server is busy. Please try again later.";
+            addNotification("Server is busy. Please try again later.", "error");
             eventSource.close();
           }
         }
@@ -336,31 +395,28 @@
         });
         const data = await response.json();
         if (data.error) {
-          showNotification(data.error, "error");
-        } else {
-          logStatus.textContent = "Crawl started";
-          logStatus.className = "px-3 py-1 text-xs font-medium rounded-md bg-accent text-gray-900";
+          addNotification(data.error, "error");
         }
       } catch (error) {
-        showNotification(error.toString(), "error");
+        addNotification(error.toString(), "error");
       } finally {
         resetButton();
       }
     });
 
-    // Cancel button event listener
+    // Sự kiện cho nút Cancel
     cancelBtn.addEventListener("click", async () => {
       try {
         const response = await fetch("/cancel", { method: "POST" });
         const data = await response.json();
-        showNotification(data.message || "Crawl cancelled successfully.", "info");
+        addNotification(data.message || "Crawl cancelled successfully.", "info");
         cancelBtn.classList.add("hidden");
       } catch (error) {
-        showNotification(error.toString(), "error");
+        addNotification(error.toString(), "error");
       }
     });
 
-    // Notification display function
+    // Hàm hiển thị thông báo tạm thời (nếu cần)
     function showNotification(message, type = "error") {
       notification.textContent = message;
       if (type === "error") {
@@ -373,7 +429,7 @@
       notification.classList.remove("hidden");
     }
 
-    // Reset button state function
+    // Hàm reset trạng thái nút khi kết thúc xử lý
     function resetButton() {
       crawlBtn.disabled = false;
       btnText.textContent = "Start Crawl";
