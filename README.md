@@ -131,6 +131,7 @@ This launches the Flask development server at `http://0.0.0.0:5006` in debug mod
   - **Timeout:** Request timeout in seconds.
   - **Max Pages:** Maximum number of pages to crawl.
 
+
 ### Common Issues
 
 1. **Server is Busy:**  
@@ -151,10 +152,18 @@ This launches the Flask development server at `http://0.0.0.0:5006` in debug mod
    If your system doesn’t support temperature sensors, the temperature field will display `"N/A"`.
 
 5. **Playwright Errors:**  
-   Ensure you have installed browsers via `python -m playwright install` (or `python3 -m playwright install`) and that the correct Python environment is being used.
-
-6. **Feather Icons Issues:**  
-   If you see icon errors (e.g., using `download-cloud`), verify the icon names at [Feather Icons](https://feathericons.com/) and update accordingly.
+   - Ensure you have installed browsers via `python -m playwright install` (or `python3 -m playwright install`) and that the correct Python environment is being used.
+   - **Linux Users:** To run Playwright on Linux (Debian/Ubuntu), install the following system libraries:
+     ```bash
+     sudo apt-get update && sudo apt-get install -y \
+         libnss3 libnss3-tools libnspr4 \
+         libatk1.0-0 libatk-bridge2.0-0 \
+         libxkbcommon0 libatspi2.0-0 \
+         libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+         libgbm1 libasound2
+     ```
+     This ensures all necessary dependencies for headless browsing are available.
+   
 
 ### License
 
@@ -292,10 +301,17 @@ Server sẽ chạy tại `http://0.0.0.0:5006` trong chế độ debug. **Không
    Nếu hệ thống của bạn không hỗ trợ cảm biến nhiệt độ, trường nhiệt độ sẽ hiển thị `"N/A"`.
 
 5. **Lỗi Playwright:**  
-   Đảm bảo đã chạy `python -m playwright install` (hoặc `python3 -m playwright install`) và môi trường Python đúng được sử dụng.
-
-6. **Lỗi Icon Feather:**  
-   Nếu gặp lỗi về icon (ví dụ: icon `download-cloud`), hãy kiểm tra tên icon tại [Feather Icons](https://feathericons.com/) và cập nhật cho phù hợp.
+   - Đảm bảo đã chạy `python -m playwright install` (hoặc `python3 -m playwright install`) và môi trường Python đúng được sử dụng.
+   - **Đối với người dùng Linux:** Để chạy Playwright trên Linux (Debian/Ubuntu), bạn cần cài đặt các thư viện hệ thống sau:
+     ```bash
+     sudo apt-get update && sudo apt-get install -y \
+         libnss3 libnss3-tools libnspr4 \
+         libatk1.0-0 libatk-bridge2.0-0 \
+         libxkbcommon0 libatspi2.0-0 \
+         libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+         libgbm1 libasound2
+     ```
+     Việc này đảm bảo rằng tất cả các phụ thuộc cần thiết cho chế độ headless của Playwright đều có sẵn.
 
 ---
 
