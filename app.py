@@ -1,25 +1,27 @@
 import asyncio
 import datetime
 import json
+import re
+import hashlib
 from queue import Queue, Empty
 from urllib.parse import urlparse, urljoin, urldefrag
 from urllib.robotparser import RobotFileParser
 import aiohttp
 from aiohttp import ClientTimeout, ClientSession
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Comment
 from flask import Flask, request, jsonify, Response, render_template
-import threading
 import concurrent.futures
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
-import psutil  # pip install psutil
+import psutil
 import logging
-import lxml.etree as ET  # Sử dụng lxml để parse XML nhanh hơn
+import lxml.etree as ET
 import os
-import time
+from threading import Lock
+from typing import Optional, Tuple, List, Dict, Any
 
-# ------------------------------
-# Cấu hình logging chuẩn và log_queue cho SSE
-# ------------------------------
+# ================================
+# Logging and SSE queue configuration
+# ================================
 logger = logging.getLogger("Crawler")
 logger.setLevel(logging.INFO)
 handler = logging.StreamHandler()
@@ -27,38 +29,70 @@ formatter = logging.Formatter('[%(asctime)s] %(levelname)s %(message)s', datefmt
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-log_queue = Queue()
+log_queue: Queue = Queue()
 
-def send_log(message: str, level=logging.INFO):
-    """
-    Ghi log qua logging và đẩy vào log_queue để SSE.
-    """
+def send_log(message: str, level: int = logging.INFO) -> None:
+    """Logs a message and pushes it to the SSE log queue."""
+    log_msg = f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}"
     logger.log(level, message)
-    log_queue.put(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}")
+    log_queue.put(log_msg)
 
-# ------------------------------
-# Caching robots.txt lên ổ đĩa
-# ------------------------------
+# ================================
+# HTML Processing Utilities
+# ================================
+def clean_text(raw_html: str) -> str:
+    """
+    Extract structured text from HTML, preserving headings, paragraphs, and lists.
+    """
+    soup = BeautifulSoup(raw_html, "html.parser")
+    for tag in soup(["script", "style"]):
+        tag.decompose()
+    for comment in soup.findAll(text=lambda text: isinstance(text, Comment)):
+        comment.extract()
+    text_parts = []
+    for element in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'li']):
+        text = element.get_text(strip=True)
+        if text:
+            text_parts.append(text)
+    return "\n".join(text_parts)
+
+def extract_title(raw_html: str) -> str:
+    """
+    Extract title from <title> or meta tag og:title.
+    """
+    soup = BeautifulSoup(raw_html, "html.parser")
+    if soup.title and soup.title.string:
+        return soup.title.string.strip()
+    meta_title = soup.find("meta", property="og:title")
+    if meta_title and meta_title.get("content"):
+        return meta_title["content"].strip()
+    return ""
+
+# ================================
+# Robots.txt Caching and Parsing
+# ================================
 ROBOTS_CACHE_DIR = "./robots_cache"
 if not os.path.exists(ROBOTS_CACHE_DIR):
     os.makedirs(ROBOTS_CACHE_DIR)
 
-def cache_robots_file(domain, content):
+def cache_robots_file(domain: str, content: str) -> None:
+    """Cache robots.txt content to disk."""
     filename = os.path.join(ROBOTS_CACHE_DIR, f"{domain}.txt")
     with open(filename, "w", encoding="utf-8") as f:
         f.write(content)
 
-def load_cached_robots(domain):
+def load_cached_robots(domain: str) -> Optional[str]:
+    """Load cached robots.txt content if available."""
     filename = os.path.join(ROBOTS_CACHE_DIR, f"{domain}.txt")
     if os.path.exists(filename):
         with open(filename, "r", encoding="utf-8") as f:
             return f.read()
     return None
 
-# ------------------------------
-# Hàm hỗ trợ request với cơ chế retry
-# ------------------------------
-async def fetch_with_retries(session: ClientSession, url: str, timeout: ClientTimeout, retries=3):
+async def fetch_with_retries(session: ClientSession, url: str, timeout: ClientTimeout, retries: int = 3) -> Optional[str]:
+    """
+    Perform HTTP GET with retries.
+    """
     for attempt in range(retries):
         try:
             async with session.get(url, timeout=timeout) as response:
@@ -71,12 +105,12 @@ async def fetch_with_retries(session: ClientSession, url: str, timeout: ClientTi
             await asyncio.sleep(1)
     return None
 
-# ------------------------------
-# Lấy và parse robots.txt (caching kèm retry)
-# ------------------------------
-async def get_robot_parser(session: ClientSession, domain: str, timeout: ClientTimeout):
+async def get_robot_parser(session: ClientSession, domain: str, timeout: ClientTimeout) -> Tuple[RobotFileParser, List[str]]:
+    """
+    Retrieve and parse robots.txt, and extract sitemap URLs.
+    """
     rp = RobotFileParser()
-    sitemap_urls = []
+    sitemap_urls: List[str] = []
     robots_text = load_cached_robots(domain)
     for scheme in ["https", "http"]:
         robots_url = f"{scheme}://{domain}/robots.txt"
@@ -91,18 +125,17 @@ async def get_robot_parser(session: ClientSession, domain: str, timeout: ClientT
             rp.parse(robots_text.splitlines())
             for line in robots_text.splitlines():
                 if line.lower().startswith("sitemap:"):
-                    sitemap = line.split(":", 1)[1].strip()
-                    sitemap_urls.append(sitemap)
+                    sitemap_urls.append(line.split(":", 1)[1].strip())
             break
     if not sitemap_urls:
         send_log(f"No sitemap found in robots.txt for {domain}", logging.INFO)
     return rp, sitemap_urls
 
-# ------------------------------
-# Parse sitemap sử dụng lxml (hỗ trợ sitemap index)
-# ------------------------------
-async def fetch_sitemap_urls(sitemap_url: str, session: ClientSession, timeout: ClientTimeout, recursive=True):
-    urls = []
+async def fetch_sitemap_urls(sitemap_url: str, session: ClientSession, timeout: ClientTimeout, recursive: bool = True) -> List[str]:
+    """
+    Parse XML sitemap (supports sitemap index) concurrently and return list of URLs.
+    """
+    urls: List[str] = []
     text = await fetch_with_retries(session, sitemap_url, timeout)
     if not text:
         send_log(f"Failed to fetch sitemap: {sitemap_url}", logging.WARNING)
@@ -115,12 +148,16 @@ async def fetch_sitemap_urls(sitemap_url: str, session: ClientSession, timeout: 
     ns = root.nsmap.get(None, '')
     if root.tag.endswith("sitemapindex"):
         send_log(f"Sitemap index detected: {sitemap_url}", logging.INFO)
+        sub_sitemap_urls = []
         for sitemap in root.findall(f"{{{ns}}}sitemap") if ns else root.findall("sitemap"):
             loc_elem = sitemap.find(f"{{{ns}}}loc") if ns else sitemap.find("loc")
             if loc_elem is not None and loc_elem.text:
-                loc = loc_elem.text.strip()
-                if recursive:
-                    urls.extend(await fetch_sitemap_urls(loc, session, timeout, recursive))
+                sub_sitemap_urls.append(loc_elem.text.strip())
+        if recursive and sub_sitemap_urls:
+            sub_tasks = [fetch_sitemap_urls(url, session, timeout, recursive) for url in sub_sitemap_urls]
+            sub_results = await asyncio.gather(*sub_tasks)
+            for sub_urls in sub_results:
+                urls.extend(sub_urls)
     elif root.tag.endswith("urlset"):
         for url_elem in root.findall(f"{{{ns}}}url") if ns else root.findall("url"):
             loc_elem = url_elem.find(f"{{{ns}}}loc") if ns else url_elem.find("loc")
@@ -131,129 +168,145 @@ async def fetch_sitemap_urls(sitemap_url: str, session: ClientSession, timeout: 
         send_log(f"Unknown sitemap format at {sitemap_url}", logging.WARNING)
     return urls
 
-# ------------------------------
-# Tạo một pool để tái sử dụng Playwright pages
-# ------------------------------
+# ================================
+# PagePool: Manage reusable Playwright pages
+# ================================
 class PagePool:
-    def __init__(self, browser, size=5):
+    def __init__(self, browser, size: int = 5) -> None:
         self.browser = browser
         self.size = size
-        self.pool = asyncio.Queue()
-    
-    async def initialize(self):
+        self.pool: asyncio.Queue = asyncio.Queue()
+
+    async def initialize(self) -> None:
         for _ in range(self.size):
             page = await self.browser.new_page()
             await self.pool.put(page)
-    
+
     async def get_page(self):
         return await self.pool.get()
-    
-    async def release_page(self, page):
+
+    async def release_page(self, page) -> None:
         await self.pool.put(page)
-    
-    async def close_all(self):
+
+    async def close_all(self) -> None:
         while not self.pool.empty():
             page = await self.pool.get()
             await page.close()
 
-# ------------------------------
-# Lấy nội dung trang sử dụng pool của Playwright
-# ------------------------------
-async def fetch_page_content(page_pool: PagePool, url: str, timeout_seconds: int):
+# ================================
+# Fetching Page Content via Playwright
+# ================================
+async def fetch_page_content(page_pool: PagePool, url: str, timeout_seconds: int) -> Optional[Tuple[str, str]]:
+    """
+    Use Playwright to load a page, scroll with limits, and return raw HTML and cleaned text.
+    """
+    page = await page_pool.get_page()
     try:
-        page = await page_pool.get_page()
-        try:
-            await page.goto(url, timeout=timeout_seconds * 1000)
-        except PlaywrightTimeoutError as e:
-            send_log(f"Timeout navigating to {url}: {e}", logging.WARNING)
-            await page_pool.release_page(page)
-            return None
-        # Cuộn trang để kích hoạt lazy loading
+        await page.goto(url, timeout=timeout_seconds * 1000)
+        max_scrolls = 5
+        scroll_count = 0
         prev_height = await page.evaluate("document.body.scrollHeight")
-        while True:
+        while scroll_count < max_scrolls:
             await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
             new_height = await page.evaluate("document.body.scrollHeight")
             if new_height == prev_height:
                 break
             prev_height = new_height
-        content = await page.content()
+            scroll_count += 1
+        raw_content = await page.content()
         send_log(f"Page content loaded for: {url}", logging.INFO)
         await page_pool.release_page(page)
-        return content
+        cleaned = clean_text(raw_content)
+        return raw_content, cleaned
+    except PlaywrightTimeoutError as e:
+        send_log(f"Timeout navigating to {url}: {e}", logging.WARNING)
+        await page_pool.release_page(page)
+        return None
     except Exception as e:
         send_log(f"Error fetching {url} with Playwright: {e}", logging.ERROR)
+        await page_pool.release_page(page)
         return None
 
-# ------------------------------
-# Domain throttling: giới hạn số request đồng thời cho mỗi domain
-# ------------------------------
+# ================================
+# Domain Throttling
+# ================================
 class DomainThrottle:
-    def __init__(self, limit=2):
+    def __init__(self, limit: int = 2) -> None:
         self.limit = limit
-        self.domain_semaphores = {}
+        self.domain_semaphores: Dict[str, asyncio.Semaphore] = {}
         self.lock = asyncio.Lock()
-    
-    async def get_semaphore(self, domain):
+
+    async def get_semaphore(self, domain: str) -> asyncio.Semaphore:
         async with self.lock:
             if domain not in self.domain_semaphores:
                 self.domain_semaphores[domain] = asyncio.Semaphore(self.limit)
             return self.domain_semaphores[domain]
 
-# ------------------------------
-# CrawlManager: quản lý quá trình crawl với các cải tiến
-# ------------------------------
+# ================================
+# CrawlManager: Manages crawling process and data optimization
+# ================================
 class CrawlManager:
-    def __init__(self, start_url, max_tokens, max_depth, concurrency, timeout_seconds, max_pages):
-        self.start_url = urldefrag(start_url)[0]
-        self.max_tokens = max_tokens
-        self.max_depth = max_depth
-        self.concurrency = concurrency
-        self.timeout_seconds = timeout_seconds
-        self.max_pages = max_pages
-        self.result_data = None
-        self.cancel_event = asyncio.Event()
-        self.is_busy = True
-        self.token_count = 0
+    def __init__(self, start_url: str, max_tokens: int, max_depth: int, concurrency: int, timeout_seconds: int, max_pages: int) -> None:
+        self.start_url: str = urldefrag(start_url)[0]
+        self.max_tokens: int = max_tokens
+        self.max_depth: int = max_depth
+        available_cores = psutil.cpu_count(logical=False)
+        self.concurrency: int = min(concurrency, max(1, available_cores - 1))  # Dynamic concurrency
+        self.timeout_seconds: int = timeout_seconds
+        self.max_pages: int = max_pages
+        self.result_data: Optional[Dict[str, Any]] = None
+        self.cancel_event: asyncio.Event = asyncio.Event()
+        self.is_busy: bool = True
+        self.token_count: int = 0
         self.domain_throttle = DomainThrottle(limit=2)
+        self.pages_crawled: int = 0
+        self.visited_urls: set = set()
+        self.queue_size: int = 0
+        self.result_lock = Lock()
 
-    async def crawl(self):
+    async def crawl(self) -> List[Dict[str, Any]]:
+        """
+        Main crawl process with parallel sitemap fetching.
+        """
         visited = set()
         visited_lock = asyncio.Lock()
-        results = []
-        q = asyncio.Queue()
+        results: List[Dict[str, Any]] = []
+        q: asyncio.Queue = asyncio.Queue()
         await q.put((self.start_url, 0))
         semaphore = asyncio.Semaphore(self.concurrency)
         prefix = self.start_url if self.start_url.endswith('/') else self.start_url + '/'
         session_timeout = ClientTimeout(total=self.timeout_seconds)
+
         async with async_playwright() as p:
             browser = await p.chromium.launch(
                 headless=True,
                 args=["--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"]
             )
-            # Khởi tạo pool page để tái sử dụng
             page_pool = PagePool(browser, size=self.concurrency)
             await page_pool.initialize()
             async with aiohttp.ClientSession(timeout=session_timeout) as session:
                 domain = urlparse(self.start_url).netloc
                 rp, sitemap_urls = await get_robot_parser(session, domain, session_timeout)
-                robots_cache = {domain: rp}
+                robots_cache: Dict[str, RobotFileParser] = {domain: rp}
                 if sitemap_urls:
-                    for sitemap in sitemap_urls:
-                        sitemap_link_urls = await fetch_sitemap_urls(sitemap, session, session_timeout)
+                    sitemap_tasks = [fetch_sitemap_urls(sitemap, session, session_timeout) for sitemap in sitemap_urls]
+                    sitemap_results = await asyncio.gather(*sitemap_tasks)
+                    for sitemap_link_urls in sitemap_results:
                         for url in sitemap_link_urls:
                             if url.startswith(prefix):
                                 await q.put((url, self.max_depth))
                 else:
-                    send_log("No sitemap available. Proceeding with recursive crawl as per original logic.", logging.INFO)
-                
-                async def worker():
+                    send_log("No sitemap available. Proceeding with recursive crawl.", logging.INFO)
+
+                async def worker() -> None:
                     nonlocal results
                     while True:
+                        if self.cancel_event.is_set():
+                            break
                         try:
                             url, depth = await asyncio.wait_for(q.get(), timeout=0.5)
                         except asyncio.TimeoutError:
-                            # Nếu hàng đợi rỗng, kiểm tra cancel_event
                             if self.cancel_event.is_set():
                                 break
                             continue
@@ -270,6 +323,7 @@ class CrawlManager:
                                 q.task_done()
                                 continue
                             visited.add(url)
+                            self.visited_urls.add(url)
                         current_domain = urlparse(url).netloc
                         if current_domain not in robots_cache:
                             rp_current, _ = await get_robot_parser(session, current_domain, session_timeout)
@@ -283,41 +337,40 @@ class CrawlManager:
                         send_log(f"Crawling: {url} (Depth: {depth})", logging.INFO)
                         domain_semaphore = await self.domain_throttle.get_semaphore(current_domain)
                         async with semaphore, domain_semaphore:
-                            content = await fetch_page_content(page_pool, url, self.timeout_seconds)
-                        if not content:
+                            page_result = await fetch_page_content(page_pool, url, self.timeout_seconds)
+                        if not page_result:
                             send_log(f"Failed to retrieve content for {url}", logging.WARNING)
                             q.task_done()
                             continue
-                        soup = BeautifulSoup(content, "html.parser")
-                        title = soup.title.string.strip() if soup.title and soup.title.string else ""
-                        text_content = soup.get_text(separator=" ", strip=True)
-                        tokens = text_content.split()
+                        raw_content, cleaned_content = page_result
+                        title = extract_title(raw_content) if raw_content else ""
+                        tokens = cleaned_content.split()
                         page_token_count = len(tokens)
                         self.token_count += page_token_count
-                        if self.token_count >= self.max_tokens:
-                            send_log("Token limit reached. Initiating immediate crawl cancellation.", logging.INFO)
-                            self.cancel_event.set()
+                        content_to_store = cleaned_content if self.token_count < self.max_tokens else "Token limit reached."
                         results.append({
                             "url": url,
                             "title": title,
-                            "content": text_content if self.token_count < self.max_tokens else "Token limit reached."
+                            "content": content_to_store,
+                            "content_hash": hashlib.md5(cleaned_content.encode('utf-8')).hexdigest(),
+                            "crawl_time": datetime.datetime.now().isoformat()
                         })
+                        self.pages_crawled += 1
                         send_log(f"Completed: {url}", logging.INFO)
                         if len(results) >= self.max_pages:
-                            send_log("Reached max pages limit. Initiating immediate crawl cancellation.", logging.INFO)
+                            send_log("Reached max pages limit. Initiating crawl cancellation.", logging.INFO)
                             self.cancel_event.set()
                         if depth < self.max_depth and not self.cancel_event.is_set():
+                            soup = BeautifulSoup(raw_content, "html.parser")
                             for a in soup.find_all("a", href=True):
                                 next_url = urldefrag(urljoin(url, a["href"]))[0]
                                 async with visited_lock:
                                     if next_url not in visited:
-                                        await q.put((next_url, depth+1))
+                                        await q.put((next_url, depth + 1))
+                        self.queue_size = q.qsize()
                         q.task_done()
 
-                # Tạo các worker tasks
                 worker_tasks = [asyncio.create_task(worker()) for _ in range(self.concurrency)]
-                
-                # Nếu hủy, giải phóng các mục trong queue để tránh chờ mãi
                 while not q.empty():
                     if self.cancel_event.is_set():
                         try:
@@ -327,9 +380,7 @@ class CrawlManager:
                             break
                     else:
                         await asyncio.sleep(0.1)
-                # Đợi hàng đợi được xử lý hoàn toàn
                 await q.join()
-                # Sau khi hoàn thành queue, hủy tất cả worker
                 for task in worker_tasks:
                     task.cancel()
                 await asyncio.gather(*worker_tasks, return_exceptions=True)
@@ -337,30 +388,78 @@ class CrawlManager:
                 await browser.close()
                 return results
 
-    def run(self):
+    def deduplicate_results(self, results: List[Dict[str, Any]]) -> Tuple[Dict[str, str], List[Dict[str, Any]]]:
+        """
+        Deduplicate pages based on content hash, retaining content for storage efficiency.
+        """
+        common_contents: Dict[str, str] = {}
+        deduped_results: List[Dict[str, Any]] = []
+        for page in results:
+            content = page.get("content", "")
+            content_hash = page.get("content_hash", "")
+            if content_hash and content_hash not in common_contents:
+                common_contents[content_hash] = content
+                deduped_results.append(page)
+            else:
+                page["content"] = ""
+                deduped_results.append(page)
+        return common_contents, deduped_results
+
+    def preprocess_for_llm(self, result_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Preprocess JSON to inline content for LLM readability, removing unnecessary fields.
+        """
+        pages = result_data["pages"]
+        common_contents = result_data["common_contents"]
+        processed_pages = []
+        for page in pages:
+            if not page["content"] and page["content_hash"] in common_contents:
+                page["content"] = common_contents[page["content_hash"]]
+            processed_page = {
+                "url": page["url"],
+                "title": page["title"],
+                "content": page["content"],
+                "crawl_time": page["crawl_time"]
+            }
+            processed_pages.append(processed_page)
+        return processed_pages
+
+    def run(self) -> None:
         new_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(new_loop)
         try:
             results = new_loop.run_until_complete(self.crawl())
-            self.result_data = {"pages": results if results is not None else []}
-            send_log(f"Crawl completed. {len(results)} pages found. Total tokens: {self.token_count}", logging.INFO)
+            common_contents, deduped_results = self.deduplicate_results(results)
+            with self.result_lock:
+                self.result_data = {
+                    "crawl_date": datetime.datetime.now().isoformat(),
+                    "source": urlparse(self.start_url).netloc,
+                    "pages": deduped_results,
+                    "common_contents": common_contents,
+                    "total_tokens": self.token_count,
+                    "pages_crawled": self.pages_crawled,
+                    "visited_urls": list(self.visited_urls)
+                }
+            send_log(f"Crawl completed. {len(deduped_results)} pages found. Total tokens: {self.token_count}", logging.INFO)
+            send_log("Data processing complete. JSON file is ready for download.", logging.INFO)
         except Exception as e:
             send_log(f"Crawl terminated with error: {e}", logging.ERROR)
-            self.result_data = {"pages": []}
+            with self.result_lock:
+                self.result_data = {"pages": [], "common_contents": {}}
         finally:
             self.is_busy = False
             send_log("Crawler has been completely shut down.", logging.INFO)
             new_loop.close()
 
-    def cancel(self):
+    def cancel(self) -> None:
         self.cancel_event.set()
-        send_log("Cancellation requested via CrawlManager.", logging.INFO)
+        send_log("Cancellation requested via CrawlManager. All jobs will be cancelled immediately.", logging.INFO)
 
-# ------------------------------
-# Flask Endpoints
-# ------------------------------
+# ================================
+# Flask Application and Endpoints
+# ================================
 app = Flask(__name__)
-current_crawler = None
+current_crawler: Optional[CrawlManager] = None
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
 @app.route('/')
@@ -425,19 +524,20 @@ def stream():
 @app.route('/download')
 def download():
     global current_crawler
-    if current_crawler is not None and current_crawler.is_busy:
+    if current_crawler is not None and current_crawler.is_busy and not current_crawler.cancel_event.is_set():
         send_log("Download requested but crawl is still in progress.", logging.INFO)
         return "Crawl is still in progress. Please wait until it finishes.", 503
-    if current_crawler is None or current_crawler.result_data is None or not current_crawler.result_data.get("pages"):
-        send_log("Download requested but no crawl data is available.", logging.INFO)
-        return "No crawl data available.", 404
-    send_log("Download requested; sending file.", logging.INFO)
-    domain = urlparse(current_crawler.start_url).netloc
-    filename = f"{domain.replace('.', '_')}_crawl_result.json"
-    json_data = json.dumps(current_crawler.result_data, ensure_ascii=False, indent=2)
-    response = Response(json_data, mimetype='application/json')
-    response.headers["Content-Disposition"] = f"attachment; filename={filename}"
-    return response
+    with current_crawler.result_lock if current_crawler else Lock():
+        if current_crawler is None or current_crawler.result_data is None or not current_crawler.result_data.get("pages"):
+            send_log("Download requested but no crawl data is available.", logging.INFO)
+            return "No crawl data available.", 404
+        send_log("Download requested; sending file.", logging.INFO)
+        domain = urlparse(current_crawler.start_url).netloc
+        filename = f"{domain.replace('.', '_')}_crawl_result.json"
+        json_data = json.dumps(current_crawler.result_data, ensure_ascii=False, indent=2)
+        response = Response(json_data, mimetype='application/json')
+        response.headers["Content-Disposition"] = f"attachment; filename={filename}"
+        return response
 
 @app.route('/status')
 def status_endpoint():
@@ -459,6 +559,42 @@ def status_endpoint():
         send_log(f"Error fetching server status: {e}", logging.ERROR)
         return jsonify({"cpu": "--", "ram": "--", "temperature": "--", "busy": False, "error": str(e)})
 
+@app.route('/detailed-status')
+def detailed_status():
+    try:
+        cpu = psutil.cpu_percent(interval=1)
+        ram = psutil.virtual_memory().percent
+        temps = psutil.sensors_temperatures()
+        temperature = None
+        if temps:
+            for sensor_name, entries in temps.items():
+                if entries:
+                    temperature = entries[0].current
+                    break
+        if temperature is None:
+            temperature = "N/A"
+        status_data = {
+            "server": {
+                "cpu": cpu,
+                "ram": ram,
+                "temperature": temperature
+            },
+            "crawler": {}
+        }
+        if current_crawler:
+            status_data["crawler"] = {
+                "is_busy": current_crawler.is_busy,
+                "total_tokens": current_crawler.token_count,
+                "pages_crawled": current_crawler.pages_crawled,
+                "visited_urls_count": len(current_crawler.visited_urls),
+                "queue_size": current_crawler.queue_size
+            }
+        else:
+            status_data["crawler"] = {"is_busy": False}
+        return jsonify(status_data)
+    except Exception as e:
+        send_log(f"Error fetching detailed status: {e}", logging.ERROR)
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == '__main__':
-    # Chạy ứng dụng Flask trên cổng 5006 với chế độ threaded
     app.run(host='0.0.0.0', port=5006, threaded=True)
