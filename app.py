@@ -21,9 +21,10 @@ import os
 from threading import Lock, Thread
 from typing import Optional, Tuple, List, Dict, Any
 import time
+import enum
 
 # ================================
-# Logging and SSE queue configuration
+# Logging Configuration
 # ================================
 logger = logging.getLogger("Crawler")
 logger.setLevel(logging.INFO)
@@ -43,7 +44,6 @@ def send_log(message: str, level: int = logging.INFO) -> None:
 # HTML Processing Utilities
 # ================================
 def clean_text(raw_html: str) -> str:
-    """Extract structured text from HTML."""
     soup = BeautifulSoup(raw_html, "html.parser")
     for tag in soup(["script", "style"]):
         tag.decompose()
@@ -57,7 +57,6 @@ def clean_text(raw_html: str) -> str:
     return "\n".join(text_parts)
 
 def extract_title(raw_html: str) -> str:
-    """Extract title from HTML."""
     soup = BeautifulSoup(raw_html, "html.parser")
     if soup.title and soup.title.string:
         return soup.title.string.strip()
@@ -67,10 +66,6 @@ def extract_title(raw_html: str) -> str:
     return ""
 
 def extract_optimized_text(raw_html: str, selector: Optional[str] = None) -> str:
-    """
-    Nếu selector được cung cấp, chỉ lấy nội dung từ phần tử đầu tiên phù hợp,
-    nếu không tìm thấy hoặc không cung cấp thì fallback về hàm clean_text.
-    """
     soup = BeautifulSoup(raw_html, "html.parser")
     if selector:
         element = soup.select_one(selector)
@@ -85,7 +80,7 @@ def extract_optimized_text(raw_html: str, selector: Optional[str] = None) -> str
     return clean_text(raw_html)
 
 # ================================
-# Robots.txt Caching and Parsing
+# Robots.txt and Sitemap Utilities
 # ================================
 ROBOTS_CACHE_DIR = "./robots_cache"
 if not os.path.exists(ROBOTS_CACHE_DIR):
@@ -109,8 +104,7 @@ async def fetch_with_retries(session: ClientSession, url: str, timeout: ClientTi
             async with session.get(url, timeout=timeout) as response:
                 if response.status == 200:
                     return await response.text()
-                else:
-                    send_log(f"Non-200 response for {url}: {response.status}", logging.WARNING)
+                send_log(f"Non-200 response for {url}: {response.status}", logging.WARNING)
         except Exception as e:
             send_log(f"Attempt {attempt+1} failed for {url}: {e}", logging.WARNING)
             await asyncio.sleep(1)
@@ -126,7 +120,7 @@ async def get_robot_parser(session: ClientSession, domain: str, timeout: ClientT
             robots_text = await fetch_with_retries(session, robots_url, timeout)
             if robots_text:
                 cache_robots_file(domain, robots_text)
-                send_log(f"Robots.txt loaded and cached from {robots_url}")
+                send_log(f"Robots.txt loaded and cached from {robots_url}", logging.INFO)
             else:
                 send_log(f"Robots.txt not found at {robots_url}", logging.WARNING)
         if robots_text:
@@ -174,7 +168,7 @@ async def fetch_sitemap_urls(sitemap_url: str, session: ClientSession, timeout: 
     return urls
 
 # ================================
-# PagePool: Manage reusable Playwright pages
+# PagePool
 # ================================
 class PagePool:
     def __init__(self, browser, size: int = 5) -> None:
@@ -199,7 +193,7 @@ class PagePool:
             await page.close()
 
 # ================================
-# Fetching Page Content via Playwright
+# Fetch Page Content
 # ================================
 async def fetch_page_content(page_pool: PagePool, url: str, timeout_seconds: int) -> Optional[Tuple[str, str]]:
     page = await page_pool.get_page()
@@ -217,7 +211,7 @@ async def fetch_page_content(page_pool: PagePool, url: str, timeout_seconds: int
             prev_height = new_height
             scroll_count += 1
         raw_content = await page.content()
-        send_log(f"Page content loaded for: {url}")
+        send_log(f"Page content loaded for: {url}", logging.INFO)
         await page_pool.release_page(page)
         return raw_content, raw_content
     except PlaywrightTimeoutError as e:
@@ -245,24 +239,33 @@ class DomainThrottle:
             return self.domain_semaphores[domain]
 
 # ================================
-# CrawlManager: Manages crawling process
+# FSM States
+# ================================
+class CrawlerState(enum.Enum):
+    IDLE = "IDLE"
+    INITIALIZING = "INITIALIZING"
+    CRAWLING = "CRAWLING"
+    CANCELLING = "CANCELLING"
+    FINISHED = "FINISHED"
+
+# ================================
+# CrawlManager with FSM
 # ================================
 class CrawlManager:
-    def __init__(self, start_url: str, max_tokens: int, max_depth: int, concurrency: int, 
-                 timeout_seconds: int, max_pages: int, content_selector: Optional[str] = "", 
+    def __init__(self, start_url: str, max_tokens: int, max_depth: int, concurrency: int,
+                 timeout_seconds: int, max_pages: int, content_selector: Optional[str] = "",
                  sitemap_url: Optional[str] = "") -> None:
         self.start_url: str = urldefrag(start_url)[0]
         self.max_tokens: int = max_tokens
         self.max_depth: int = max_depth
-        available_cores = psutil.cpu_count(logical=False)
-        self.concurrency: int = min(concurrency, max(1, available_cores - 1))
+        self.concurrency: int = min(concurrency, max(1, psutil.cpu_count(logical=False) - 1))
         self.timeout_seconds: int = timeout_seconds
         self.max_pages: int = max_pages
-        self.content_selector = content_selector.strip()
-        self.sitemap_url = sitemap_url.strip()  # Trường sitemap thủ công
+        self.content_selector: str = content_selector.strip()
+        self.sitemap_url: str = sitemap_url.strip()
+        self.state: CrawlerState = CrawlerState.IDLE
         self.result_data: Optional[Dict[str, Any]] = None
         self.cancel_event: asyncio.Event = asyncio.Event()
-        self.is_busy: bool = True
         self.token_count: int = 0
         self.domain_throttle = DomainThrottle(limit=2)
         self.pages_crawled: int = 0
@@ -271,16 +274,157 @@ class CrawlManager:
         self.result_lock = Lock()
         self.user_root_url: str = self.start_url
         self.currently_crawling: set = set()
+        self.task_queue: asyncio.Queue = asyncio.Queue()
+        self.worker_tasks: List[asyncio.Task] = []
+        self.results: List[Dict[str, Any]] = []  # Store results incrementally
 
-    async def crawl(self) -> List[Dict[str, Any]]:
-        visited = set()
-        visited_lock = asyncio.Lock()
-        results: List[Dict[str, Any]] = []
-        q: asyncio.Queue = asyncio.Queue()
-        await q.put((self.start_url, 0))
-        semaphore = asyncio.Semaphore(self.concurrency)
+    def transition_to(self, new_state: CrawlerState) -> None:
+        old_state = self.state
+        self.state = new_state
+        send_log(f"State transition: {old_state.value} -> {new_state.value}", logging.INFO)
+        if new_state == CrawlerState.CANCELLING:
+            self.save_partial_results()
+
+    @property
+    def is_busy(self) -> bool:
+        return self.state in (CrawlerState.INITIALIZING, CrawlerState.CRAWLING, CrawlerState.CANCELLING)
+
+    def save_partial_results(self) -> None:
+        """Save the current progress to file when cancelling or finishing."""
+        with self.result_lock:
+            self.result_data = {
+                "crawl_date": datetime.datetime.now().isoformat(),
+                "source": urlparse(self.start_url).netloc,
+                "pages": self.results,
+                "total_tokens": self.token_count,
+                "pages_crawled": self.pages_crawled,
+                "visited_urls": list(self.visited_urls),
+                "status": "cancelled" if self.state == CrawlerState.CANCELLING else "completed"
+            }
+            save_crawl_result(self.start_url, self.result_data)
+            send_log(f"Saved partial results: {self.pages_crawled} pages", logging.INFO)
+
+    async def initialize_crawl(self, session: ClientSession, page_pool: PagePool) -> None:
+        self.transition_to(CrawlerState.INITIALIZING)
         prefix = self.start_url if self.start_url.endswith('/') else self.start_url + '/'
         session_timeout = ClientTimeout(total=self.timeout_seconds)
+        domain = urlparse(self.start_url).netloc
+        rp, robots_sitemaps = await get_robot_parser(session, domain, session_timeout)
+
+        await self.task_queue.put((self.start_url, 0))
+        if self.sitemap_url:
+            send_log("Using manually provided sitemap URL(s)", logging.INFO)
+            sitemap_list = [s.strip() for s in self.sitemap_url.split(",") if s.strip()]
+            sitemap_tasks = [fetch_sitemap_urls(s, session, session_timeout) for s in sitemap_list]
+            sitemap_results = await asyncio.gather(*sitemap_tasks)
+            for sitemap_link_urls in sitemap_results:
+                for url in sitemap_link_urls:
+                    if url.startswith(prefix):
+                        await self.task_queue.put((url, self.max_depth))
+            send_log(f"Added {self.task_queue.qsize()} URLs from manual sitemap", logging.INFO)
+        elif robots_sitemaps:
+            send_log("Using sitemap from robots.txt", logging.INFO)
+            sitemap_tasks = [fetch_sitemap_urls(s, session, session_timeout) for s in robots_sitemaps]
+            sitemap_results = await asyncio.gather(*sitemap_tasks)
+            for sitemap_link_urls in sitemap_results:
+                for url in sitemap_link_urls:
+                    if url.startswith(prefix):
+                        await self.task_queue.put((url, self.max_depth))
+            send_log(f"Added {self.task_queue.qsize()} URLs from robots.txt sitemap", logging.INFO)
+        else:
+            send_log("No sitemap available; starting recursive crawl", logging.INFO)
+
+    async def crawl_worker(self, session: ClientSession, page_pool: PagePool, semaphore: asyncio.Semaphore,
+                          visited: set, visited_lock: asyncio.Lock) -> None:
+        robots_cache: Dict[str, RobotFileParser] = {}
+        prefix = self.start_url if self.start_url.endswith('/') else self.start_url + '/'
+        while self.state == CrawlerState.CRAWLING:
+            try:
+                url, depth = await asyncio.wait_for(self.task_queue.get(), timeout=0.5)
+            except asyncio.TimeoutError:
+                if self.cancel_event.is_set():
+                    break
+                continue
+
+            async with visited_lock:
+                if url in visited:
+                    self.task_queue.task_done()
+                    continue
+                if url != self.start_url and not url.startswith(prefix):
+                    send_log(f"Skipping out-of-scope URL: {url}", logging.INFO)
+                    visited.add(url)
+                    self.task_queue.task_done()
+                    continue
+                visited.add(url)
+                self.visited_urls.add(url)
+                self.currently_crawling.add(url)
+
+            try:
+                current_domain = urlparse(url).netloc
+                if current_domain not in robots_cache:
+                    rp, _ = await get_robot_parser(session, current_domain, ClientTimeout(total=self.timeout_seconds))
+                    robots_cache[current_domain] = rp
+                else:
+                    rp = robots_cache[current_domain]
+
+                if rp and not rp.can_fetch("*", url):
+                    send_log(f"URL blocked by robots.txt: {url}", logging.INFO)
+                    self.task_queue.task_done()
+                    continue
+
+                send_log(f"Processing URL: {url} (Depth: {depth})", logging.INFO)
+                domain_semaphore = await self.domain_throttle.get_semaphore(current_domain)
+                async with semaphore, domain_semaphore:
+                    page_result = await fetch_page_content(page_pool, url, self.timeout_seconds)
+                if not page_result:
+                    send_log(f"Content retrieval failed for URL: {url}", logging.WARNING)
+                    self.task_queue.task_done()
+                    continue
+
+                raw_content, _ = page_result
+                cleaned_content = (extract_optimized_text(raw_content, self.content_selector)
+                                 if self.content_selector else clean_text(raw_content))
+                title = extract_title(raw_content) if raw_content else ""
+                tokens = cleaned_content.split()
+                page_token_count = len(tokens)
+                self.token_count += page_token_count
+
+                content_to_store = (cleaned_content if self.token_count < self.max_tokens
+                                  else "Token limit reached.")
+                page_data = {
+                    "url": url,
+                    "title": title,
+                    "content": content_to_store,
+                    "content_hash": hashlib.md5(cleaned_content.encode('utf-8')).hexdigest(),
+                    "crawl_time": datetime.datetime.now().isoformat()
+                }
+                self.results.append(page_data)
+                self.pages_crawled += 1
+                send_log(f"Completed processing URL: {url} (Tokens: {page_token_count})", logging.INFO)
+
+                if len(self.results) >= self.max_pages or self.token_count >= self.max_tokens:
+                    send_log(f"Limit reached: {len(self.results)} pages or {self.token_count} tokens", logging.INFO)
+                    self.transition_to(CrawlerState.CANCELLING)
+                    break
+                elif depth < self.max_depth and self.state == CrawlerState.CRAWLING:
+                    soup = BeautifulSoup(raw_content, "html.parser")
+                    for a in soup.find_all("a", href=True):
+                        next_url = urldefrag(urljoin(url, a["href"]))[0]
+                        async with visited_lock:
+                            if next_url not in visited:
+                                await self.task_queue.put((next_url, depth + 1))
+                self.queue_size = self.task_queue.qsize()
+            except Exception as e:
+                send_log(f"Error processing URL {url}: {e}", logging.ERROR)
+            finally:
+                self.currently_crawling.discard(url)
+                self.task_queue.task_done()
+
+    async def crawl(self) -> List[Dict[str, Any]]:
+        self.results = []  # Reset results for each crawl
+        visited: set = set()
+        visited_lock = asyncio.Lock()
+        semaphore = asyncio.Semaphore(self.concurrency)
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(
@@ -289,132 +433,45 @@ class CrawlManager:
             )
             page_pool = PagePool(browser, size=self.concurrency)
             await page_pool.initialize()
-            async with aiohttp.ClientSession(timeout=session_timeout) as session:
-                domain = urlparse(self.start_url).netloc
-                rp, robots_sitemaps = await get_robot_parser(session, domain, session_timeout)
-                robots_cache: Dict[str, RobotFileParser] = {domain: rp}
-                # Nếu sitemap_url được nhập thủ công, ưu tiên sử dụng nó.
-                if self.sitemap_url:
-                    send_log("Using manually provided sitemap URL(s).", logging.INFO)
-                    sitemap_list = [s.strip() for s in self.sitemap_url.split(",") if s.strip()]
-                    sitemap_tasks = [fetch_sitemap_urls(s, session, session_timeout) for s in sitemap_list]
-                    sitemap_results = await asyncio.gather(*sitemap_tasks)
-                    for sitemap_link_urls in sitemap_results:
-                        for url in sitemap_link_urls:
-                            if url.startswith(prefix):
-                                await q.put((url, self.max_depth))
-                    send_log(f"Total manually provided sitemap URLs added: {q.qsize()}", logging.INFO)
-                elif robots_sitemaps:
-                    send_log("Sitemap detected from robots.txt. Adding sitemap URLs to the crawl queue.", logging.INFO)
-                    sitemap_tasks = [fetch_sitemap_urls(sitemap, session, session_timeout) for sitemap in robots_sitemaps]
-                    sitemap_results = await asyncio.gather(*sitemap_tasks)
-                    for sitemap_link_urls in sitemap_results:
-                        for url in sitemap_link_urls:
-                            if url.startswith(prefix):
-                                await q.put((url, self.max_depth))
-                    send_log(f"Total sitemap URLs added: {q.qsize()}", logging.INFO)
-                else:
-                    send_log("No sitemap available. Proceeding with recursive crawl.", logging.INFO)
+            async with aiohttp.ClientSession(timeout=ClientTimeout(total=self.timeout_seconds)) as session:
+                await self.initialize_crawl(session, page_pool)
+                self.transition_to(CrawlerState.CRAWLING)
+                send_log(f"Crawl started with {self.task_queue.qsize()} initial tasks", logging.INFO)
 
-                async def worker() -> None:
-                    nonlocal results
-                    while True:
-                        if self.cancel_event.is_set():
-                            break
-                        try:
-                            url, depth = await asyncio.wait_for(q.get(), timeout=0.5)
-                        except asyncio.TimeoutError:
-                            if self.cancel_event.is_set():
-                                break
-                            continue
-                        if self.cancel_event.is_set():
-                            q.task_done()
-                            break
+                self.worker_tasks = [
+                    asyncio.create_task(self.crawl_worker(session, page_pool, semaphore, visited, visited_lock))
+                    for _ in range(self.concurrency)
+                ]
 
-                        async with visited_lock:
-                            if url in visited:
-                                q.task_done()
-                                continue
-                            if url != self.start_url and not url.startswith(prefix):
-                                send_log(f"Skipping out-of-scope URL: {url}", logging.INFO)
-                                visited.add(url)
-                                q.task_done()
-                                continue
-                            visited.add(url)
-                            self.visited_urls.add(url)
-                            self.currently_crawling.add(url)
-                        try:
-                            current_domain = urlparse(url).netloc
-                            if current_domain not in robots_cache:
-                                rp_current, _ = await get_robot_parser(session, current_domain, session_timeout)
-                                robots_cache[current_domain] = rp_current
-                            else:
-                                rp_current = robots_cache[current_domain]
-                            if rp_current is not None and not rp_current.can_fetch("*", url):
-                                send_log(f"URL blocked by robots.txt: {url}", logging.INFO)
-                                q.task_done()
-                                continue
-                            send_log(f"Processing URL: {url} (Depth: {depth})", logging.INFO)
-                            domain_semaphore = await self.domain_throttle.get_semaphore(current_domain)
-                            async with semaphore, domain_semaphore:
-                                page_result = await fetch_page_content(page_pool, url, self.timeout_seconds)
-                            if not page_result:
-                                send_log(f"Content retrieval failed for URL: {url}", logging.WARNING)
-                                q.task_done()
-                                continue
-                            raw_content, _ = page_result
-                            cleaned_content = extract_optimized_text(raw_content, self.content_selector) if self.content_selector else clean_text(raw_content)
-                            title = extract_title(raw_content) if raw_content else ""
-                            tokens = cleaned_content.split()
-                            page_token_count = len(tokens)
-                            self.token_count += page_token_count
-                            content_to_store = cleaned_content if self.token_count < self.max_tokens else "Token limit reached."
-                            results.append({
-                                "url": url,
-                                "title": title,
-                                "content": content_to_store,
-                                "content_hash": hashlib.md5(cleaned_content.encode('utf-8')).hexdigest(),
-                                "crawl_time": datetime.datetime.now().isoformat()
-                            })
-                            self.pages_crawled += 1
-                            send_log(f"Completed processing URL: {url}", logging.INFO)
-                            if len(results) >= self.max_pages:
-                                send_log("Maximum page limit reached. Cancelling further crawl tasks.", logging.INFO)
-                                self.cancel_event.set()
-                            if depth < self.max_depth and not self.cancel_event.is_set():
-                                soup = BeautifulSoup(raw_content, "html.parser")
-                                for a in soup.find_all("a", href=True):
-                                    next_url = urldefrag(urljoin(url, a["href"]))[0]
-                                    async with visited_lock:
-                                        if next_url not in visited:
-                                            await q.put((next_url, depth + 1))
-                            self.queue_size = q.qsize()
-                        except Exception as e:
-                            send_log(f"Error processing URL {url}: {e}", logging.ERROR)
-                        finally:
-                            self.currently_crawling.discard(url)
-                            q.task_done()
+                # Wait for either queue completion or cancellation
+                await asyncio.wait(
+                    [self.task_queue.join(), self.cancel_event.wait()],
+                    return_when=asyncio.FIRST_COMPLETED
+                )
 
-                worker_tasks = [asyncio.create_task(worker()) for _ in range(self.concurrency)]
-                send_log(f"Queue initialized with {q.qsize()} tasks.", logging.INFO)
-                while not q.empty():
-                    if self.cancel_event.is_set():
-                        try:
-                            q.get_nowait()
-                            q.task_done()
-                        except Exception:
-                            break
-                    else:
-                        await asyncio.sleep(0.1)
-                await q.join()
-                for task in worker_tasks:
+                if self.cancel_event.is_set():
+                    self.transition_to(CrawlerState.CANCELLING)
+                elif self.state == CrawlerState.CRAWLING:
+                    self.transition_to(CrawlerState.FINISHED)
+
+                # Cancel all worker tasks cleanly
+                for task in self.worker_tasks:
                     task.cancel()
-                await asyncio.gather(*worker_tasks, return_exceptions=True)
+                await asyncio.gather(*self.worker_tasks, return_exceptions=True)
+
+                # Cleanup resources
                 await page_pool.close_all()
                 await browser.close()
-                return results
+
+                # Save results if not already saved (e.g., on FINISHED state)
+                if self.state != CrawlerState.CANCELLING:
+                    self.save_partial_results()
+
+                send_log(f"Crawl ended with state: {self.state.value}", logging.INFO)
+                return self.results
 
     def run(self) -> None:
+        self.transition_to(CrawlerState.IDLE)
         new_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(new_loop)
         try:
@@ -426,29 +483,29 @@ class CrawlManager:
                     "pages": results,
                     "total_tokens": self.token_count,
                     "pages_crawled": self.pages_crawled,
-                    "visited_urls": list(self.visited_urls)
+                    "visited_urls": list(self.visited_urls),
+                    "status": "completed"
                 }
-            save_crawl_result(self.start_url, self.result_data)
-            send_log(f"Crawl completed: {len(results)} pages found. Total tokens: {self.token_count}", logging.INFO)
-            send_log("Data processing complete. JSON file is ready for download.", logging.INFO)
         except Exception as e:
-            send_log(f"Crawl terminated with error: {e}", logging.ERROR)
+            send_log(f"Crawl failed: {e}", logging.ERROR)
             with self.result_lock:
-                self.result_data = {"pages": []}
+                self.result_data = {"pages": self.results, "status": "failed"}
+            self.save_partial_results()
         finally:
-            self.is_busy = False
-            send_log("Crawler has been completely shut down.", logging.INFO)
-            new_loop.close()
+            self.transition_to(CrawlerState.IDLE)
             global current_crawler
             current_crawler = None
-            process_queue()
+            process_queue()  # Immediately trigger queue processing
+            new_loop.close()
 
     def cancel(self) -> None:
-        self.cancel_event.set()
-        send_log("Cancellation requested. All crawl tasks will be terminated immediately.", logging.INFO)
+        if self.state in (CrawlerState.INITIALIZING, CrawlerState.CRAWLING):
+            self.transition_to(CrawlerState.CANCELLING)
+            self.cancel_event.set()
+            send_log("Crawl cancellation initiated", logging.INFO)
 
 # ================================
-# Persistence for Crawl Results and Queue
+# Persistence and Queue
 # ================================
 CRAWL_RESULTS_DIR = "./crawl_results"
 if not os.path.exists(CRAWL_RESULTS_DIR):
@@ -516,13 +573,13 @@ def add_to_queue(crawl_request: Dict[str, Any]) -> None:
     for req in queue:
         if req.get("url") == new_url:
             found = True
-            send_log(f"Queue already contains crawl request for URL: {new_url}. Merging duplicate request.", logging.INFO)
+            send_log(f"Queue already contains request for {new_url}; merging", logging.INFO)
             break
     if not found:
         crawl_request["submitted_at"] = datetime.datetime.now().isoformat()
         queue.append(crawl_request)
         save_queue(queue)
-        send_log(f"Added new crawl request to queue for URL: {new_url}. Total queued tasks: {len(queue)}", logging.INFO)
+        send_log(f"Added request for {new_url} to queue (Total: {len(queue)})", logging.INFO)
 
 def process_queue():
     global current_crawler
@@ -530,7 +587,7 @@ def process_queue():
     if queue and (current_crawler is None or not current_crawler.is_busy):
         crawl_request = queue.pop(0)
         save_queue(queue)
-        send_log(f"Resuming crawl for queued URL: {crawl_request.get('url', 'unknown')}. Remaining tasks in queue: {len(queue)}", logging.INFO)
+        send_log(f"Processing queued request for {crawl_request.get('url', 'unknown')} (Remaining: {len(queue)})", logging.INFO)
         current_crawler = CrawlManager(
             crawl_request.get("url"),
             int(crawl_request.get("max_tokens", 2000000)),
@@ -543,16 +600,19 @@ def process_queue():
         )
         executor.submit(current_crawler.run)
     else:
-        send_log("No tasks in queue to process or crawler is busy.", logging.INFO)
+        send_log("No tasks in queue or crawler busy", logging.INFO)
+
 
 def queue_worker():
     while True:
         if current_crawler is None or not current_crawler.is_busy:
             process_queue()
-        time.sleep(5)
+        else:
+            send_log("Queue worker waiting for crawler to finish", logging.DEBUG)
+        time.sleep(1)  # Reduced sleep time for faster queue processing
 
 # ================================
-# Flask Application and Endpoints
+# Flask Application
 # ================================
 app = Flask(__name__)
 current_crawler: Optional[CrawlManager] = None
@@ -569,7 +629,7 @@ def start_crawl_route():
     start_url = data.get("url")
     force = data.get("force", False)
     content_selector = data.get("content_selector", "").strip()
-    sitemap_url = data.get("sitemap_url", "").strip()  # Trường sitemap thủ công
+    sitemap_url = data.get("sitemap_url", "").strip()
     if not start_url:
         return jsonify({"error": "Missing URL parameter."}), 400
 
@@ -583,7 +643,7 @@ def start_crawl_route():
         data["content_selector"] = content_selector
         data["sitemap_url"] = sitemap_url
         add_to_queue(data)
-        send_log("Server is busy; your crawl request has been queued.", logging.INFO)
+        send_log("Crawler busy; request queued", logging.INFO)
         return jsonify({"message": "Server is busy; your crawl request has been queued.", "queued": True}), 200
 
     current_crawler = CrawlManager(
@@ -596,7 +656,7 @@ def start_crawl_route():
         content_selector=content_selector,
         sitemap_url=sitemap_url
     )
-    send_log("Crawl process initiated.", logging.INFO)
+    send_log("Crawl initiated", logging.INFO)
     executor.submit(current_crawler.run)
     return jsonify({"message": "Crawl started."})
 
@@ -606,8 +666,7 @@ def cancel():
     if current_crawler is not None and current_crawler.is_busy:
         current_crawler.cancel()
         return jsonify({"message": "Crawl cancellation requested. Partial crawl data is available."})
-    else:
-        return jsonify({"message": "No crawl in progress."}), 400
+    return jsonify({"message": "No crawl in progress."}), 400
 
 @app.route('/stream')
 def stream():
@@ -624,13 +683,13 @@ def stream():
 def download():
     global current_crawler
     if current_crawler is not None and current_crawler.is_busy and not current_crawler.cancel_event.is_set():
-        send_log("Download requested but crawl is still in progress.", logging.INFO)
+        send_log("Download requested but crawl in progress", logging.INFO)
         return "Crawl is still in progress. Please wait until it finishes.", 503
     with current_crawler.result_lock if current_crawler else Lock():
         if current_crawler is None or current_crawler.result_data is None or not current_crawler.result_data.get("pages"):
-            send_log("Download requested but no crawl data is available.", logging.INFO)
+            send_log("No crawl data available for download", logging.INFO)
             return "No crawl data available.", 404
-        send_log("Download requested; sending result file.", logging.INFO)
+        send_log("Sending crawl result file", logging.INFO)
         domain = urlparse(current_crawler.start_url).netloc
         filename = f"{domain.replace('.', '_')}_crawl_result.json"
         json_data = json.dumps(current_crawler.result_data, ensure_ascii=False, indent=2)
@@ -645,13 +704,10 @@ def crawled_files():
             mapping = json.load(f)
     else:
         mapping = {}
-    files_list = []
-    for url, info in mapping.items():
-        files_list.append({
-            "url": url,
-            "filename": info.get("filename"),
-            "last_updated": info.get("last_updated")
-        })
+    files_list = [
+        {"url": url, "filename": info.get("filename"), "last_updated": info.get("last_updated")}
+        for url, info in mapping.items()
+    ]
     return jsonify(files_list)
 
 @app.route('/download-file')
@@ -675,20 +731,26 @@ def status_endpoint():
         cpu = psutil.cpu_percent(interval=1)
         ram = psutil.virtual_memory().percent
         temps = psutil.sensors_temperatures()
-        temperature = None
+        temperature = "N/A"
         if temps:
-            for sensor_name, entries in temps.items():
-                if entries:
-                    temperature = entries[0].current
+            for sensor_name, readings in temps.items():
+                if readings:
+                    temperature = readings[0].current
                     break
-        if temperature is None:
-            temperature = "N/A"
-        busy = current_crawler.is_busy if current_crawler is not None else False
+        crawler_state = current_crawler.state.value if current_crawler else "NONE"
+        busy = current_crawler.is_busy if current_crawler else False
         queue_len = len(load_queue())
-        return jsonify({"cpu": cpu, "ram": ram, "temperature": temperature, "busy": busy, "queue_length": queue_len})
+        return jsonify({
+            "cpu": cpu,
+            "ram": ram,
+            "temperature": temperature,
+            "busy": busy,
+            "queue_length": queue_len,
+            "crawler_state": crawler_state
+        })
     except Exception as e:
-        send_log(f"Error fetching server status: {e}", logging.ERROR)
-        return jsonify({"cpu": "--", "ram": "--", "temperature": "--", "busy": False, "error": str(e)})
+        send_log(f"Error fetching status: {e}", logging.ERROR)
+        return jsonify({"cpu": "--", "ram": "--", "temperature": "--", "busy": False, "queue_length": 0, "crawler_state": "NONE", "error": str(e)})
 
 @app.route('/detailed-status')
 def detailed_status():
@@ -696,53 +758,59 @@ def detailed_status():
         cpu = psutil.cpu_percent(interval=1)
         ram = psutil.virtual_memory().percent
         temps = psutil.sensors_temperatures()
-        temperature = None
+        temperature = "N/A"
         if temps:
-            for sensor_name, entries in temps.items():
-                if entries:
-                    temperature = entries[0].current
+            for sensor_name, readings in temps.items():
+                if readings:
+                    temperature = readings[0].current
                     break
-        if temperature is None:
-            temperature = "N/A"
+        crawler_state = current_crawler.state.value if current_crawler else "NONE"
         status_data = {
             "server": {
                 "cpu": cpu,
                 "ram": ram,
-                "temperature": temperature
+                "temperature": temperature,
+                "crawler_state": crawler_state
             },
-            "crawler": {}
-        }
-        if current_crawler:
-            status_data["crawler"] = {
+            "crawler": {"is_busy": False} if not current_crawler else {
                 "is_busy": current_crawler.is_busy,
                 "total_tokens": current_crawler.token_count,
                 "pages_crawled": current_crawler.pages_crawled,
                 "visited_urls_count": len(current_crawler.visited_urls),
                 "queue_size": current_crawler.queue_size,
                 "current_urls": [current_crawler.start_url]
-            }
-        else:
-            status_data["crawler"] = {"is_busy": False}
-        status_data["queue_length"] = len(load_queue())
+            },
+            "queue_length": len(load_queue())
+        }
         return jsonify(status_data)
     except Exception as e:
         send_log(f"Error fetching detailed status: {e}", logging.ERROR)
         return jsonify({"error": str(e)}), 500
+
+@app.route('/crawler-state')
+def crawler_state():
+    try:
+        if current_crawler:
+            return jsonify({"state": current_crawler.state.value})
+        else:
+            return jsonify({"state": "NONE"})
+    except Exception as e:
+        send_log(f"Error fetching crawler state: {e}", logging.ERROR)
+        return jsonify({"state": "NONE", "error": str(e)}), 500
 
 @app.route('/resume-queue', methods=['POST'])
 def resume_queue():
     global current_crawler
     if current_crawler is None or not current_crawler.is_busy:
         process_queue()
-        send_log("User triggered resume of queue processing.", logging.INFO)
+        send_log("Queue resumed by user", logging.INFO)
         return jsonify({"message": "Queue resumed."}), 200
-    else:
-        send_log("Resume queue request received: crawler is busy; queue remains active.", logging.WARNING)
-        return jsonify({"message": "Crawler is busy; queue is active."}), 200
+    send_log("Queue resume requested but crawler busy", logging.WARNING)
+    return jsonify({"message": "Crawler is busy; queue is active."}), 200
 
 if __name__ == '__main__':
     Thread(target=queue_worker, daemon=True).start()
     if load_queue():
-        send_log(f"Server started with {len(load_queue())} queued crawl task(s).", logging.INFO)
+        send_log(f"Server started with {len(load_queue())} queued tasks", logging.INFO)
     process_queue()
     app.run(host='0.0.0.0', port=5006, threaded=True)
