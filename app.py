@@ -4,7 +4,6 @@ monkey.patch_all()
 import asyncio
 import datetime
 import json
-import re
 import hashlib
 from queue import Queue, Empty
 from urllib.parse import urlparse, urljoin, urldefrag
@@ -44,14 +43,14 @@ def send_log(message: str, level: int = logging.INFO) -> None:
 # HTML Processing Utilities
 # ================================
 def clean_text(raw_html: str) -> str:
-    """Extract structured text from HTML (fallback nếu không có selector)."""
+    """Extract structured text from HTML."""
     soup = BeautifulSoup(raw_html, "html.parser")
     for tag in soup(["script", "style"]):
         tag.decompose()
     for comment in soup.findAll(text=lambda text: isinstance(text, Comment)):
         comment.extract()
     text_parts = []
-    for element in soup.find_all(['h1','h2','h3','h4','h5','h6','p','li']):
+    for element in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'li']):
         text = element.get_text(strip=True)
         if text:
             text_parts.append(text)
@@ -246,7 +245,7 @@ class DomainThrottle:
             return self.domain_semaphores[domain]
 
 # ================================
-# CrawlManager: Manages crawling process and data optimization
+# CrawlManager: Manages crawling process
 # ================================
 class CrawlManager:
     def __init__(self, start_url: str, max_tokens: int, max_depth: int, concurrency: int, 
@@ -415,59 +414,27 @@ class CrawlManager:
                 await browser.close()
                 return results
 
-    def deduplicate_results(self, results: List[Dict[str, Any]]) -> Tuple[Dict[str, str], List[Dict[str, Any]]]:
-        common_contents: Dict[str, str] = {}
-        deduped_results: List[Dict[str, Any]] = []
-        for page in results:
-            content = page.get("content", "")
-            content_hash = page.get("content_hash", "")
-            if content_hash and content_hash not in common_contents:
-                common_contents[content_hash] = content
-                deduped_results.append(page)
-            else:
-                page["content"] = ""
-                deduped_results.append(page)
-        return common_contents, deduped_results
-
-    def preprocess_for_llm(self, result_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-        pages = result_data["pages"]
-        common_contents = result_data["common_contents"]
-        processed_pages = []
-        for page in pages:
-            if not page["content"] and page["content_hash"] in common_contents:
-                page["content"] = common_contents[page["content_hash"]]
-            processed_page = {
-                "url": page["url"],
-                "title": page["title"],
-                "content": page["content"],
-                "crawl_time": page["crawl_time"]
-            }
-            processed_pages.append(processed_page)
-        return processed_pages
-
     def run(self) -> None:
         new_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(new_loop)
         try:
             results = new_loop.run_until_complete(self.crawl())
-            common_contents, deduped_results = self.deduplicate_results(results)
             with self.result_lock:
                 self.result_data = {
                     "crawl_date": datetime.datetime.now().isoformat(),
                     "source": urlparse(self.start_url).netloc,
-                    "pages": deduped_results,
-                    "common_contents": common_contents,
+                    "pages": results,
                     "total_tokens": self.token_count,
                     "pages_crawled": self.pages_crawled,
                     "visited_urls": list(self.visited_urls)
                 }
             save_crawl_result(self.start_url, self.result_data)
-            send_log(f"Crawl completed: {len(deduped_results)} pages found. Total tokens: {self.token_count}", logging.INFO)
+            send_log(f"Crawl completed: {len(results)} pages found. Total tokens: {self.token_count}", logging.INFO)
             send_log("Data processing complete. JSON file is ready for download.", logging.INFO)
         except Exception as e:
             send_log(f"Crawl terminated with error: {e}", logging.ERROR)
             with self.result_lock:
-                self.result_data = {"pages": [], "common_contents": {}}
+                self.result_data = {"pages": []}
         finally:
             self.is_busy = False
             send_log("Crawler has been completely shut down.", logging.INFO)
