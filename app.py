@@ -36,8 +36,6 @@ logger.addHandler(handler)
 log_queue: Queue = Queue()
 
 def send_log(message: str, level: int = logging.INFO) -> None:
-    """Log a message and push it to the SSE queue.
-       Ensure that duplicate messages are not sent multiple times if not needed."""
     log_msg = f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}"
     logger.log(level, message)
     log_queue.put(log_msg)
@@ -46,14 +44,14 @@ def send_log(message: str, level: int = logging.INFO) -> None:
 # HTML Processing Utilities
 # ================================
 def clean_text(raw_html: str) -> str:
-    """Extract structured text from HTML."""
+    """Extract structured text from HTML (fallback nếu không có selector)."""
     soup = BeautifulSoup(raw_html, "html.parser")
     for tag in soup(["script", "style"]):
         tag.decompose()
     for comment in soup.findAll(text=lambda text: isinstance(text, Comment)):
         comment.extract()
     text_parts = []
-    for element in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'li']):
+    for element in soup.find_all(['h1','h2','h3','h4','h5','h6','p','li']):
         text = element.get_text(strip=True)
         if text:
             text_parts.append(text)
@@ -68,6 +66,24 @@ def extract_title(raw_html: str) -> str:
     if meta_title and meta_title.get("content"):
         return meta_title["content"].strip()
     return ""
+
+def extract_optimized_text(raw_html: str, selector: Optional[str] = None) -> str:
+    """
+    Nếu selector được cung cấp, chỉ lấy nội dung từ phần tử đầu tiên phù hợp,
+    nếu không tìm thấy hoặc không cung cấp thì fallback về hàm clean_text.
+    """
+    soup = BeautifulSoup(raw_html, "html.parser")
+    if selector:
+        element = soup.select_one(selector)
+        if element:
+            for tag in element(["script", "style"]):
+                tag.decompose()
+            for comment in element.findAll(text=lambda text: isinstance(text, Comment)):
+                comment.extract()
+            text = element.get_text(separator="\n", strip=True)
+            if text:
+                return text
+    return clean_text(raw_html)
 
 # ================================
 # Robots.txt Caching and Parsing
@@ -204,8 +220,7 @@ async def fetch_page_content(page_pool: PagePool, url: str, timeout_seconds: int
         raw_content = await page.content()
         send_log(f"Page content loaded for: {url}")
         await page_pool.release_page(page)
-        cleaned = clean_text(raw_content)
-        return raw_content, cleaned
+        return raw_content, raw_content
     except PlaywrightTimeoutError as e:
         send_log(f"Timeout navigating to {url}: {e}", logging.WARNING)
         await page_pool.release_page(page)
@@ -234,7 +249,9 @@ class DomainThrottle:
 # CrawlManager: Manages crawling process and data optimization
 # ================================
 class CrawlManager:
-    def __init__(self, start_url: str, max_tokens: int, max_depth: int, concurrency: int, timeout_seconds: int, max_pages: int) -> None:
+    def __init__(self, start_url: str, max_tokens: int, max_depth: int, concurrency: int, 
+                 timeout_seconds: int, max_pages: int, content_selector: Optional[str] = "", 
+                 sitemap_url: Optional[str] = "") -> None:
         self.start_url: str = urldefrag(start_url)[0]
         self.max_tokens: int = max_tokens
         self.max_depth: int = max_depth
@@ -242,6 +259,8 @@ class CrawlManager:
         self.concurrency: int = min(concurrency, max(1, available_cores - 1))
         self.timeout_seconds: int = timeout_seconds
         self.max_pages: int = max_pages
+        self.content_selector = content_selector.strip()
+        self.sitemap_url = sitemap_url.strip()  # Trường sitemap thủ công
         self.result_data: Optional[Dict[str, Any]] = None
         self.cancel_event: asyncio.Event = asyncio.Event()
         self.is_busy: bool = True
@@ -251,9 +270,7 @@ class CrawlManager:
         self.visited_urls: set = set()
         self.queue_size: int = 0
         self.result_lock = Lock()
-        # Để theo dõi URL gốc (do người dùng nhập) – dùng cho thông báo queue
         self.user_root_url: str = self.start_url
-        # Theo dõi các URL đang được xử lý (crawl)
         self.currently_crawling: set = set()
 
     async def crawl(self) -> List[Dict[str, Any]]:
@@ -275,17 +292,28 @@ class CrawlManager:
             await page_pool.initialize()
             async with aiohttp.ClientSession(timeout=session_timeout) as session:
                 domain = urlparse(self.start_url).netloc
-                rp, sitemap_urls = await get_robot_parser(session, domain, session_timeout)
+                rp, robots_sitemaps = await get_robot_parser(session, domain, session_timeout)
                 robots_cache: Dict[str, RobotFileParser] = {domain: rp}
-                if sitemap_urls:
-                    send_log("Sitemap detected. Adding sitemap URLs to the crawl queue.")
-                    sitemap_tasks = [fetch_sitemap_urls(sitemap, session, session_timeout) for sitemap in sitemap_urls]
+                # Nếu sitemap_url được nhập thủ công, ưu tiên sử dụng nó.
+                if self.sitemap_url:
+                    send_log("Using manually provided sitemap URL(s).", logging.INFO)
+                    sitemap_list = [s.strip() for s in self.sitemap_url.split(",") if s.strip()]
+                    sitemap_tasks = [fetch_sitemap_urls(s, session, session_timeout) for s in sitemap_list]
                     sitemap_results = await asyncio.gather(*sitemap_tasks)
                     for sitemap_link_urls in sitemap_results:
                         for url in sitemap_link_urls:
                             if url.startswith(prefix):
                                 await q.put((url, self.max_depth))
-                    send_log(f"Total sitemap URLs added: {q.qsize()}")
+                    send_log(f"Total manually provided sitemap URLs added: {q.qsize()}", logging.INFO)
+                elif robots_sitemaps:
+                    send_log("Sitemap detected from robots.txt. Adding sitemap URLs to the crawl queue.", logging.INFO)
+                    sitemap_tasks = [fetch_sitemap_urls(sitemap, session, session_timeout) for sitemap in robots_sitemaps]
+                    sitemap_results = await asyncio.gather(*sitemap_tasks)
+                    for sitemap_link_urls in sitemap_results:
+                        for url in sitemap_link_urls:
+                            if url.startswith(prefix):
+                                await q.put((url, self.max_depth))
+                    send_log(f"Total sitemap URLs added: {q.qsize()}", logging.INFO)
                 else:
                     send_log("No sitemap available. Proceeding with recursive crawl.", logging.INFO)
 
@@ -335,7 +363,8 @@ class CrawlManager:
                                 send_log(f"Content retrieval failed for URL: {url}", logging.WARNING)
                                 q.task_done()
                                 continue
-                            raw_content, cleaned_content = page_result
+                            raw_content, _ = page_result
+                            cleaned_content = extract_optimized_text(raw_content, self.content_selector) if self.content_selector else clean_text(raw_content)
                             title = extract_title(raw_content) if raw_content else ""
                             tokens = cleaned_content.split()
                             page_token_count = len(tokens)
@@ -368,7 +397,7 @@ class CrawlManager:
                             q.task_done()
 
                 worker_tasks = [asyncio.create_task(worker()) for _ in range(self.concurrency)]
-                send_log(f"Queue initialized with {q.qsize()} tasks.")
+                send_log(f"Queue initialized with {q.qsize()} tasks.", logging.INFO)
                 while not q.empty():
                     if self.cancel_event.is_set():
                         try:
@@ -445,7 +474,7 @@ class CrawlManager:
             new_loop.close()
             global current_crawler
             current_crawler = None
-            process_queue()  # Resume processing queue if tasks remain.
+            process_queue()
 
     def cancel(self) -> None:
         self.cancel_event.set()
@@ -541,7 +570,9 @@ def process_queue():
             int(crawl_request.get("max_depth", 2)),
             int(crawl_request.get("concurrency", 3)),
             int(crawl_request.get("timeout", 10)),
-            int(crawl_request.get("max_pages", 100))
+            int(crawl_request.get("max_pages", 100)),
+            content_selector=crawl_request.get("content_selector", ""),
+            sitemap_url=crawl_request.get("sitemap_url", "")
         )
         executor.submit(current_crawler.run)
     else:
@@ -570,6 +601,8 @@ def start_crawl_route():
     data = request.get_json()
     start_url = data.get("url")
     force = data.get("force", False)
+    content_selector = data.get("content_selector", "").strip()
+    sitemap_url = data.get("sitemap_url", "").strip()  # Trường sitemap thủ công
     if not start_url:
         return jsonify({"error": "Missing URL parameter."}), 400
 
@@ -580,6 +613,8 @@ def start_crawl_route():
         }), 200
 
     if current_crawler is not None and current_crawler.is_busy:
+        data["content_selector"] = content_selector
+        data["sitemap_url"] = sitemap_url
         add_to_queue(data)
         send_log("Server is busy; your crawl request has been queued.", logging.INFO)
         return jsonify({"message": "Server is busy; your crawl request has been queued.", "queued": True}), 200
@@ -590,7 +625,9 @@ def start_crawl_route():
         int(data.get("max_depth", 2)),
         int(data.get("concurrency", 3)),
         int(data.get("timeout", 10)),
-        int(data.get("max_pages", 100))
+        int(data.get("max_pages", 100)),
+        content_selector=content_selector,
+        sitemap_url=sitemap_url
     )
     send_log("Crawl process initiated.", logging.INFO)
     executor.submit(current_crawler.run)
@@ -725,9 +762,6 @@ def detailed_status():
         send_log(f"Error fetching detailed status: {e}", logging.ERROR)
         return jsonify({"error": str(e)}), 500
 
-# ================================
-# New API: Resume Queue
-# ================================
 @app.route('/resume-queue', methods=['POST'])
 def resume_queue():
     global current_crawler
@@ -740,7 +774,6 @@ def resume_queue():
         return jsonify({"message": "Crawler is busy; queue is active."}), 200
 
 if __name__ == '__main__':
-    # Start background thread for processing queue every 5 seconds.
     Thread(target=queue_worker, daemon=True).start()
     if load_queue():
         send_log(f"Server started with {len(load_queue())} queued crawl task(s).", logging.INFO)
