@@ -73,7 +73,6 @@
       font-weight: 500;
     }
 
-    /* Sử dụng CSS Grid với align-items: stretch để các card cùng hàng có chiều cao bằng nhau */
     .content-grid {
       display: grid;
       grid-template-columns: repeat(12, 1fr);
@@ -104,13 +103,6 @@
       font-weight: 500;
       margin-bottom: 15px;
       font-size: 1.25rem;
-    }
-
-    /* Bỏ các giá trị cố định về chiều cao để card tự co giãn theo nội dung */
-    .crawl-config-card,
-    .system-status-card {
-      min-height: auto;
-      max-height: none;
     }
 
     .crawl-config-form {
@@ -222,31 +214,62 @@
       transition: transform 0.1s ease;
     }
 
-    .system-status-row {
+    /* System Status Styling */
+    .system-status-container {
       display: flex;
       flex-wrap: wrap;
-      gap: 15px;
+      justify-content: space-between; /* Evenly distribute blocks */
+      gap: 10px;
       margin-bottom: 15px;
-      color: var(--log-text);
+      color: var(--log-text) !important;
     }
 
-    .system-status-row span {
+    .status-block {
+      background-color: var(--input-dark);
+      border: 2px solid;
+      border-radius: 8px;
+      padding: 8px 12px;
       display: flex;
       align-items: center;
-      gap: 5px;
+      gap: 6px;
       font-size: 0.9rem;
+      width: 18%; /* Fixed percentage width for even distribution */
+      min-width: 120px; /* Minimum width to prevent collapse */
+      justify-content: center;
+      text-align: center;
+      color: var(--log-text) !important;
+      flex-grow: 1; /* Allow blocks to grow equally if needed */
     }
 
-    .system-status-row i {
-      color: var(--log-text);
+    .status-block i {
+      color: var(--log-text) !important;
     }
+
+    .status-block.cpu {
+      border-color: var(--accent);
+    }
+
+    .status-block.ram {
+      border-color: var(--success);
+    }
+
+    .status-block.temp {
+      border-color: var(--error);
+    }
+
+    .status-block.state {
+      border-color: var(--info);
+    }
+
 
     .current-urls {
-      color: var(--log-text);
+      color: var(--log-text) !important;
       font-size: 0.9rem;
       margin-bottom: 15px;
+      text-align: center; /* Center the "Currently Crawling" text */
     }
 
+    /* Activity Log Styling */
     .activity-log-card {
       flex-grow: 1;
     }
@@ -261,6 +284,21 @@
       font-size: 0.85rem;
       font-family: monospace;
       flex-grow: 1;
+    }
+
+    .log-entry {
+      display: flex;
+      align-items: center;
+      padding: 6px 0;
+    }
+
+    .log-entry:last-child {
+      border-bottom: none;
+    }
+
+    .log-icon {
+      margin-right: 8px;
+      flex-shrink: 0;
     }
 
     .log-success {
@@ -298,7 +336,6 @@
         opacity: 0;
         transform: translateY(10px);
       }
-
       to {
         opacity: 1;
         transform: translateY(0);
@@ -335,7 +372,6 @@
       margin-top: 15px;
     }
 
-    /* Crawled Files */
     .table-dark {
       background-color: var(--card-dark);
       color: var(--log-text);
@@ -356,7 +392,6 @@
       background: linear-gradient(to right, rgba(74, 222, 128, 0.2), transparent);
     }
 
-    /* Toast */
     .toast {
       max-width: 280px;
       border: none;
@@ -388,7 +423,6 @@
       align-items: flex-end;
     }
 
-    /* Footer */
     footer {
       background-color: var(--card-dark);
       border-top: 1px solid var(--border-dark);
@@ -402,15 +436,16 @@
       text-decoration: none;
     }
 
-    /* Responsive */
     @media (max-width: 992px) {
       .content-grid {
         grid-template-columns: repeat(1, 1fr);
       }
-
       .span-6,
       .span-12 {
         grid-column: span 1;
+      }
+      .status-block {
+        width: 48%; /* Two per row on medium screens */
       }
     }
 
@@ -418,27 +453,25 @@
       .main-container {
         padding: 15px;
       }
-
       .form-row {
         flex-direction: column;
       }
-
-      .system-status-row {
+      .system-status-container {
         flex-direction: column;
-        align-items: flex-start;
-        gap: 10px;
+        align-items: center;
+        gap: 8px;
       }
-
+      .status-block {
+        width: 100%; /* Full width on small screens */
+      }
       .button-group {
         flex-direction: column;
         gap: 8px;
       }
-
       .btn {
         width: 100%;
         justify-content: center;
       }
-
       .log-actions {
         flex-direction: column;
         align-items: stretch;
@@ -473,17 +506,13 @@
             <label for="url">Root URL</label>
             <input type="url" id="url" class="form-control" placeholder="https://example.com/docs" required>
           </div>
-          <!-- Trường Content Selector (Optional) -->
           <div class="form-field">
             <label for="content-selector">Content Selector (Optional)</label>
-            <input type="text" id="content-selector" class="form-control"
-              placeholder="e.g., div#content or .main-content">
+            <input type="text" id="content-selector" class="form-control" placeholder="e.g., div#content or .main-content">
           </div>
-          <!-- Trường Sitemap URL (Optional) -->
           <div class="form-field">
             <label for="sitemap-url">Sitemap URL (Optional)</label>
-            <input type="text" id="sitemap-url" class="form-control"
-              placeholder="e.g., https://example.com/sitemap.xml">
+            <input type="text" id="sitemap-url" class="form-control" placeholder="e.g., https://example.com/sitemap.xml">
           </div>
           <div class="form-row">
             <div class="form-field">
@@ -525,14 +554,19 @@
       <!-- System Status -->
       <section class="system-status-card card span-6">
         <h3>System Status</h3>
-        <div class="system-status-row">
-          <span id="cpu-status"><i data-feather="cpu"></i>CPU: --%</span>
-          <span id="ram-status"><i data-feather="database"></i>RAM: --%</span>
-          <span id="temp-status"><i data-feather="thermometer"></i>Temp: --°C</span>
-          <span id="busy-status"><i data-feather="activity"></i>Status: Idle</span>
-          <span id="pages-crawled"><i data-feather="file-text"></i>Pages: 0</span>
-          <span id="total-tokens"><i data-feather="hash"></i>Tokens: 0</span>
-          <span id="queue-size"><i data-feather="list"></i>Queue: 0</span>
+        <div class="system-status-container">
+          <div class="status-block cpu" id="cpu-status">
+            <i data-feather="cpu"></i>CPU: --%
+          </div>
+          <div class="status-block ram" id="ram-status">
+            <i data-feather="database"></i>RAM: --%
+          </div>
+          <div class="status-block temp" id="temp-status">
+            <i data-feather="thermometer"></i>Temp: --°C
+          </div>
+          <div class="status-block state" id="state-status">
+            <i data-feather="activity"></i>State: NONE
+          </div>
         </div>
         <div class="current-urls" id="current-urls">Currently Crawling: None</div>
         <canvas id="systemChart" style="max-height: 200px; flex-grow: 1;"></canvas>
@@ -610,20 +644,16 @@
     const cpuStatus = document.getElementById('cpu-status');
     const ramStatus = document.getElementById('ram-status');
     const tempStatus = document.getElementById('temp-status');
-    const busyStatus = document.getElementById('busy-status');
-    const pagesCrawledEl = document.getElementById('pages-crawled');
-    const totalTokensEl = document.getElementById('total-tokens');
-    const queueSizeEl = document.getElementById('queue-size');
+    const stateStatus = document.getElementById('state-status');
+    const currentUrlsEl = document.getElementById('current-urls');
     const concurrencyInput = document.getElementById('concurrency');
     const toastContainer = document.querySelector('.toast-container');
     const crawledFilesList = document.getElementById('crawled-files-list');
-    const currentUrlsEl = document.getElementById('current-urls');
 
     let eventSource;
     let pagesCrawled = 0;
-    let detailedQueueSize = 0;
     let maxPages = 100;
-    let latestUrl = null; // Lưu URL vừa crawl xong
+    let latestUrl = null;
 
     // Chart initialization
     const ctx = document.getElementById('systemChart').getContext('2d');
@@ -683,18 +713,20 @@
         return;
       }
       const entry = document.createElement('div');
-      entry.className = `d-flex align-items-center log-${type} mb-1 fade-in`;
-      entry.innerHTML = `<i data-feather="chevron-right" class="me-2" style="width: 12px; height: 12px;"></i>${message}`;
+      entry.className = `log-entry log-${type} fade-in`;
+      entry.innerHTML = `
+        <i data-feather="chevron-right" class="log-icon" style="width: 12px; height: 12px;"></i>
+        <span>${message}</span>
+      `;
       logEl.appendChild(entry);
       feather.replace();
       logEl.scrollTop = logEl.scrollHeight;
 
       if (message.includes('Crawl started') || message.includes('Crawl finished') ||
-        message.includes('Error') || message.includes('Cancelled') || message.includes('completed')) {
+          message.includes('Error') || message.includes('Cancelled') || message.includes('completed')) {
         showToast(message, type);
       }
 
-      // Lưu URL vừa crawl xong
       if (message.includes('Completed processing URL:')) {
         pagesCrawled++;
         const urlMatch = message.match(/URL: (.+)$/);
@@ -702,8 +734,7 @@
           latestUrl = urlMatch[1];
           updateCrawledFiles();
         }
-        const total = pagesCrawled + detailedQueueSize;
-        let percent = total > 0 ? (pagesCrawled / total) * 100 : 100;
+        const percent = (pagesCrawled / maxPages) * 100;
         progressBar.style.width = `${Math.min(percent, 100)}%`;
         progressText.textContent = `${Math.round(percent)}% - ${pagesCrawled} pages crawled`;
       }
@@ -761,31 +792,34 @@
     // Update system status
     async function updateStatus() {
       try {
-        const res = await fetch('/detailed-status');
+        const res = await fetch('/status');
         if (!res.ok) throw new Error('Status fetch failed');
         const data = await res.json();
-        cpuStatus.innerHTML = `<i data-feather="cpu"></i>CPU: ${data.server.cpu}%`;
-        ramStatus.innerHTML = `<i data-feather="database"></i>RAM: ${data.server.ram}%`;
-        tempStatus.innerHTML = `<i data-feather="thermometer"></i>Temp: ${data.server.temperature}°C`;
-        busyStatus.innerHTML = `<i data-feather="activity"></i>Status: ${data.crawler.is_busy ? 'Busy' : 'Idle'}`;
-        pagesCrawledEl.innerHTML = `<i data-feather="file-text"></i>Pages: ${data.crawler.pages_crawled || 0}`;
-        totalTokensEl.innerHTML = `<i data-feather="hash"></i>Tokens: ${data.crawler.total_tokens || 0}`;
-        queueSizeEl.innerHTML = `<i data-feather="list"></i>Queue: ${data.crawler.queue_size || 0}`;
-        detailedQueueSize = data.crawler.queue_size || 0;
-        concurrencyInput.value = data.crawler.is_busy ? data.crawler.concurrency || 3 : 3;
-        currentUrlsEl.textContent = data.crawler.current_urls?.length > 0 ? "Currently Crawling: " + data.crawler.current_urls.join(", ") : "Currently Crawling: None";
+        cpuStatus.innerHTML = `<i data-feather="cpu"></i>CPU: ${data.cpu}%`;
+        ramStatus.innerHTML = `<i data-feather="database"></i>RAM: ${data.ram}%`;
+        tempStatus.innerHTML = `<i data-feather="thermometer"></i>Temp: ${data.temperature}°C`;
+        stateStatus.innerHTML = `<i data-feather="activity"></i>State: ${data.crawler_state}`;
         feather.replace();
 
         const now = new Date().toLocaleTimeString();
         systemChart.data.labels.push(now);
-        systemChart.data.datasets[0].data.push(data.server.cpu);
-        systemChart.data.datasets[1].data.push(data.server.ram);
-        systemChart.data.datasets[2].data.push(data.server.temperature === 'N/A' ? 0 : data.server.temperature);
+        systemChart.data.datasets[0].data.push(data.cpu);
+        systemChart.data.datasets[1].data.push(data.ram);
+        systemChart.data.datasets[2].data.push(data.temperature === 'N/A' ? 0 : data.temperature);
         if (systemChart.data.labels.length > 20) {
           systemChart.data.labels.shift();
           systemChart.data.datasets.forEach(dataset => dataset.data.shift());
         }
         systemChart.update();
+
+        // Fetch detailed status for current URLs
+        const detailedRes = await fetch('/detailed-status');
+        if (detailedRes.ok) {
+          const detailedData = await detailedRes.json();
+          currentUrlsEl.textContent = detailedData.crawler.current_urls?.length > 0
+            ? "Currently Crawling: " + detailedData.crawler.current_urls.join(", ")
+            : "Currently Crawling: None";
+        }
       } catch (error) {
         console.error('Status update error:', error);
       }
