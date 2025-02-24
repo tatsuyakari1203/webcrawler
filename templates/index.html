@@ -73,10 +73,12 @@
       font-weight: 500;
     }
 
+    /* Sử dụng CSS Grid với align-items: stretch để các card cùng hàng có chiều cao bằng nhau */
     .content-grid {
       display: grid;
       grid-template-columns: repeat(12, 1fr);
       gap: 20px;
+      align-items: stretch;
     }
 
     .span-6 {
@@ -104,10 +106,11 @@
       font-size: 1.25rem;
     }
 
-    /* Crawl Configuration */
-    .crawl-config-card {
-      min-height: 400px;
-      max-height: 400px;
+    /* Bỏ các giá trị cố định về chiều cao để card tự co giãn theo nội dung */
+    .crawl-config-card,
+    .system-status-card {
+      min-height: auto;
+      max-height: none;
     }
 
     .crawl-config-form {
@@ -161,9 +164,10 @@
 
     .button-group {
       display: flex;
-      gap: 10px;
       flex-wrap: wrap;
+      gap: 10px;
       margin-top: auto;
+      justify-content: center;
     }
 
     .btn {
@@ -218,12 +222,6 @@
       transition: transform 0.1s ease;
     }
 
-    /* System Status */
-    .system-status-card {
-      min-height: 400px;
-      max-height: 400px;
-    }
-
     .system-status-row {
       display: flex;
       flex-wrap: wrap;
@@ -249,7 +247,6 @@
       margin-bottom: 15px;
     }
 
-    /* Activity Log */
     .activity-log-card {
       flex-grow: 1;
     }
@@ -415,12 +412,6 @@
       .span-12 {
         grid-column: span 1;
       }
-
-      .crawl-config-card,
-      .system-status-card {
-        min-height: auto;
-        max-height: none;
-      }
     }
 
     @media (max-width: 576px) {
@@ -481,6 +472,18 @@
           <div class="form-field">
             <label for="url">Root URL</label>
             <input type="url" id="url" class="form-control" placeholder="https://example.com/docs" required>
+          </div>
+          <!-- Trường Content Selector (Optional) -->
+          <div class="form-field">
+            <label for="content-selector">Content Selector (Optional)</label>
+            <input type="text" id="content-selector" class="form-control"
+              placeholder="e.g., div#content or .main-content">
+          </div>
+          <!-- Trường Sitemap URL (Optional) -->
+          <div class="form-field">
+            <label for="sitemap-url">Sitemap URL (Optional)</label>
+            <input type="text" id="sitemap-url" class="form-control"
+              placeholder="e.g., https://example.com/sitemap.xml">
           </div>
           <div class="form-row">
             <div class="form-field">
@@ -697,7 +700,7 @@
         const urlMatch = message.match(/URL: (.+)$/);
         if (urlMatch) {
           latestUrl = urlMatch[1];
-          updateCrawledFiles(); // Cập nhật lại danh sách để áp dụng gradient
+          updateCrawledFiles();
         }
         const total = pagesCrawled + detailedQueueSize;
         let percent = total > 0 ? (pagesCrawled / total) * 100 : 100;
@@ -849,7 +852,9 @@
         max_depth: document.getElementById('max_depth').value,
         concurrency: document.getElementById('concurrency').value,
         timeout: document.getElementById('timeout').value,
-        max_pages: document.getElementById('max_pages').value
+        max_pages: document.getElementById('max_pages').value,
+        content_selector: document.getElementById('content-selector').value,
+        sitemap_url: document.getElementById('sitemap-url').value
       };
 
       startSSE();
