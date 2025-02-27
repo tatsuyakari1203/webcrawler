@@ -95,7 +95,7 @@ async def fetch_with_retries(session: ClientSession, url: str, timeout: ClientTi
                 await asyncio.sleep(backoff_factor ** attempt)
     return None
 
-async def get_robot_parser(session: ClientSession, domain: str, timeout: ClientTimeout) -> Tuple[Optional[RobotFileParser], List[str], Optional[int]]:
+async def get_robot_parser(session: ClientSession, domain: str, timeout: ClientTimeout) -> Tuple[RobotFileParser, List[str], Optional[int]]:
     sitemap_urls: List[str] = []
     robots_text = load_cached_robots(domain)
 
@@ -109,7 +109,9 @@ async def get_robot_parser(session: ClientSession, domain: str, timeout: ClientT
                 break
         if not robots_text:
             send_log(f"No robots.txt for {domain}, assuming all allowed", context="ROBOTS")
-            return None, [], None
+            # Cache an empty file to record that no robots.txt exists.
+            cache_robots_file(domain, "")
+            robots_text = ""
 
     rp = RobotFileParser()
     rp.parse(robots_text.splitlines())
@@ -120,6 +122,7 @@ async def get_robot_parser(session: ClientSession, domain: str, timeout: ClientT
                 sitemap_urls.append(sitemap_url)
     crawl_delay = get_crawl_delay_from_text(robots_text)
     return rp, sitemap_urls, crawl_delay
+
 
 async def fetch_sitemap_urls(sitemap_url: str, session: ClientSession, timeout: ClientTimeout, recursive: bool = True) -> List[str]:
     urls: List[str] = []
@@ -715,4 +718,4 @@ def resume_queue():
 
 if __name__ == '__main__':
     Thread(target=queue_worker, daemon=True).start()
-    app.run(host='0.0.0.0', port=5006, threaded=True)
+    app.run(host='0.0.0.0', port=5007, threaded=True)
