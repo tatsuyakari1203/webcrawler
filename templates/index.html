@@ -209,7 +209,12 @@
       background-color: #138496;
     }
 
-    .btn:active {
+    .btn:disabled {
+      background-color: #444;
+      cursor: not-allowed;
+    }
+
+    .btn:active:not(:disabled) {
       transform: scale(0.98);
       transition: transform 0.1s ease;
     }
@@ -218,7 +223,7 @@
     .system-status-container {
       display: flex;
       flex-wrap: wrap;
-      justify-content: space-between; /* Evenly distribute blocks */
+      justify-content: space-between;
       gap: 10px;
       margin-bottom: 15px;
       color: var(--log-text) !important;
@@ -233,12 +238,12 @@
       align-items: center;
       gap: 6px;
       font-size: 0.9rem;
-      width: 18%; /* Fixed percentage width for even distribution */
-      min-width: 120px; /* Minimum width to prevent collapse */
+      width: 18%;
+      min-width: 120px;
       justify-content: center;
       text-align: center;
       color: var(--log-text) !important;
-      flex-grow: 1; /* Allow blocks to grow equally if needed */
+      flex-grow: 1;
     }
 
     .status-block i {
@@ -261,12 +266,11 @@
       border-color: var(--info);
     }
 
-
     .current-urls {
       color: var(--log-text) !important;
       font-size: 0.9rem;
       margin-bottom: 15px;
-      text-align: center; /* Center the "Currently Crawling" text */
+      text-align: center;
     }
 
     /* Activity Log Styling */
@@ -445,7 +449,7 @@
         grid-column: span 1;
       }
       .status-block {
-        width: 48%; /* Two per row on medium screens */
+        width: 48%;
       }
     }
 
@@ -462,7 +466,7 @@
         gap: 8px;
       }
       .status-block {
-        width: 100%; /* Full width on small screens */
+        width: 100%;
       }
       .button-group {
         flex-direction: column;
@@ -516,20 +520,8 @@
           </div>
           <div class="form-row">
             <div class="form-field">
-              <label for="max_tokens">Max Tokens</label>
-              <input type="number" id="max_tokens" class="form-control" value="2000000" min="1000">
-            </div>
-            <div class="form-field">
               <label for="max_depth">Max Depth</label>
               <input type="number" id="max_depth" class="form-control" value="2" min="1">
-            </div>
-            <div class="form-field">
-              <label for="concurrency">Concurrency</label>
-              <input type="number" id="concurrency" class="form-control" value="3" min="1" max="10" readonly>
-            </div>
-            <div class="form-field">
-              <label for="timeout">Timeout (s)</label>
-              <input type="number" id="timeout" class="form-control" value="10" min="5">
             </div>
             <div class="form-field">
               <label for="max_pages">Max Pages</label>
@@ -579,9 +571,10 @@
         <div class="progress">
           <div id="progress-bar" class="progress-bar" style="width: 0%;"></div>
         </div>
-        <p id="progress-text" class="progress-text">0% - 0 pages crawled</p>
+        <p id="progress-text" class="progress-text">0% (0 / 0 pages)</p>
         <div class="log-actions">
           <button class="btn btn-accent btn-sm" onclick="exportLog()">Export Log</button>
+          <button class="btn btn-success btn-sm" id="download-btn" disabled>Download Results</button>
         </div>
       </section>
 
@@ -639,6 +632,7 @@
     const btnSpinner = document.getElementById('btn-spinner');
     const cancelBtn = document.getElementById('cancel-btn');
     const resumeBtn = document.getElementById('resume-btn');
+    const downloadBtn = document.getElementById('download-btn');
     const progressBar = document.getElementById('progress-bar');
     const progressText = document.getElementById('progress-text');
     const cpuStatus = document.getElementById('cpu-status');
@@ -646,13 +640,13 @@
     const tempStatus = document.getElementById('temp-status');
     const stateStatus = document.getElementById('state-status');
     const currentUrlsEl = document.getElementById('current-urls');
-    const concurrencyInput = document.getElementById('concurrency');
     const toastContainer = document.querySelector('.toast-container');
     const crawledFilesList = document.getElementById('crawled-files-list');
 
     let eventSource;
     let pagesCrawled = 0;
-    let maxPages = 100;
+    let pageValid = 0;
+    let isCrawling = false;
     let latestUrl = null;
 
     // Chart initialization
@@ -722,22 +716,44 @@
       feather.replace();
       logEl.scrollTop = logEl.scrollHeight;
 
-      if (message.includes('Crawl started') || message.includes('Crawl finished') ||
-          message.includes('Error') || message.includes('Cancelled') || message.includes('completed')) {
-        showToast(message, type);
+      // Parse log for progress
+      if (message.includes('Completed URL')) {
+        pagesCrawled++;
+        updateProgress();
+      } else if (message.includes('Initialized with')) {
+        const match = message.match(/Initialized with (\d+) valid pages/);
+        if (match) {
+          pageValid = parseInt(match[1], 10);
+          updateProgress();
+        }
+      } else if (message.includes('Crawl completed')) {
+        const match = message.match(/Processed (\d+) pages/);
+        if (match) {
+          pagesCrawled = parseInt(match[1], 10);
+          updateProgress();
+          cancelBtn.classList.add('d-none');
+          downloadBtn.disabled = false;
+          eventSource?.close();
+          isCrawling = false;
+        }
+      } else if (message.includes('Cancellation requested') || message.includes('Crawler has been completely shut down')) {
+        cancelBtn.classList.add('d-none');
+        downloadBtn.disabled = pagesCrawled === 0;
+        eventSource?.close();
+        isCrawling = false;
       }
 
-      if (message.includes('Completed processing URL:')) {
-        pagesCrawled++;
-        const urlMatch = message.match(/URL: (.+)$/);
-        if (urlMatch) {
-          latestUrl = urlMatch[1];
-          updateCrawledFiles();
-        }
-        const percent = (pagesCrawled / maxPages) * 100;
-        progressBar.style.width = `${Math.min(percent, 100)}%`;
-        progressText.textContent = `${Math.round(percent)}% - ${pagesCrawled} pages crawled`;
+      if (message.includes('Crawl process initiated') || message.includes('Crawl completed') ||
+          message.includes('Error') || message.includes('Cancellation requested')) {
+        showToast(message, type);
       }
+    }
+
+    // Update progress
+    function updateProgress() {
+      const percent = pageValid > 0 ? Math.min((pagesCrawled / pageValid) * 100, 100) : 0;
+      progressBar.style.width = `${percent}%`;
+      progressText.textContent = `${percent.toFixed(1)}% (${pagesCrawled} / ${pageValid} pages)`;
     }
 
     // Export log
@@ -754,36 +770,26 @@
 
     // SSE
     function startSSE() {
+      if (eventSource) eventSource.close();
       eventSource = new EventSource('/stream');
       eventSource.onmessage = (e) => {
         if (e.data && !e.data.startsWith(':')) {
           const message = e.data;
-          if (message.includes('Server is busy') || message.includes('Crawler is busy')) {
-            showToast(message, 'error');
-            return;
-          }
           if (message.includes('Crawl process initiated')) {
-            addLog('Crawl started');
-          } else if (message.includes('Crawling:')) {
-            addLog(message);
-          } else if (message.includes('Completed processing URL:')) {
-            addLog(message, 'success');
-          } else if (message.includes('Reached max') || message.includes('Token limit')) {
-            addLog(message, 'error');
+            addLog('Crawl started', 'info');
           } else if (message.includes('Crawl completed')) {
             addLog('Crawl finished', 'success');
-            progressBar.style.width = '100%';
-            progressText.textContent = `100% - ${pagesCrawled} pages crawled`;
-            cancelBtn.classList.add('d-none');
-            eventSource.close();
           } else if (message.includes('Cancellation requested')) {
-            addLog(`Cancelled after ${pagesCrawled} pages`, 'error');
-            cancelBtn.classList.add('d-none');
-            eventSource.close();
+            addLog(`Crawl cancelled after ${pagesCrawled} pages`, 'error');
           } else {
             addLog(message);
           }
         }
+      };
+      eventSource.onerror = () => {
+        addLog('Log stream disconnected', 'warning');
+        eventSource.close();
+        if (isCrawling) updateStatus();
       };
     }
 
@@ -795,30 +801,30 @@
         const res = await fetch('/status');
         if (!res.ok) throw new Error('Status fetch failed');
         const data = await res.json();
-        cpuStatus.innerHTML = `<i data-feather="cpu"></i>CPU: ${data.cpu}%`;
-        ramStatus.innerHTML = `<i data-feather="database"></i>RAM: ${data.ram}%`;
-        tempStatus.innerHTML = `<i data-feather="thermometer"></i>Temp: ${data.temperature}°C`;
-        stateStatus.innerHTML = `<i data-feather="activity"></i>State: ${data.crawler_state}`;
+        cpuStatus.innerHTML = `<i data-feather="cpu"></i>CPU: ${data.system.cpu.toFixed(1)}%`;
+        ramStatus.innerHTML = `<i data-feather="database"></i>RAM: ${data.system.ram.toFixed(1)}%`;
+        tempStatus.innerHTML = `<i data-feather="thermometer"></i>Temp: ${data.system.temperature === 'N/A' ? '--' : data.system.temperature}°C`;
+        stateStatus.innerHTML = `<i data-feather="activity"></i>State: ${data.crawler.is_busy ? 'BUSY' : 'IDLE'}`;
         feather.replace();
 
         const now = new Date().toLocaleTimeString();
         systemChart.data.labels.push(now);
-        systemChart.data.datasets[0].data.push(data.cpu);
-        systemChart.data.datasets[1].data.push(data.ram);
-        systemChart.data.datasets[2].data.push(data.temperature === 'N/A' ? 0 : data.temperature);
+        systemChart.data.datasets[0].data.push(data.system.cpu);
+        systemChart.data.datasets[1].data.push(data.system.ram);
+        systemChart.data.datasets[2].data.push(data.system.temperature === 'N/A' ? 0 : data.system.temperature);
         if (systemChart.data.labels.length > 20) {
           systemChart.data.labels.shift();
           systemChart.data.datasets.forEach(dataset => dataset.data.shift());
         }
         systemChart.update();
 
-        // Fetch detailed status for current URLs
-        const detailedRes = await fetch('/detailed-status');
-        if (detailedRes.ok) {
-          const detailedData = await detailedRes.json();
-          currentUrlsEl.textContent = detailedData.crawler.current_urls?.length > 0
-            ? "Currently Crawling: " + detailedData.crawler.current_urls.join(", ")
-            : "Currently Crawling: None";
+        if (data.crawler && data.crawler.pages_crawled !== undefined) {
+          pagesCrawled = data.crawler.pages_crawled;
+          pageValid = data.crawler.page_valid;
+          currentUrlsEl.textContent = `Pages Crawled: ${data.crawler.pages_crawled} | Valid Pages: ${data.crawler.page_valid}`;
+          updateProgress();
+        } else {
+          currentUrlsEl.textContent = 'Currently Crawling: None';
         }
       } catch (error) {
         console.error('Status update error:', error);
@@ -828,12 +834,13 @@
     debouncedUpdateStatus();
     setInterval(debouncedUpdateStatus, 1000);
 
-    // Update crawled files with gradient for latest URL
+    // Update crawled files list
     async function updateCrawledFiles() {
       try {
         const res = await fetch('/crawled-files');
         if (!res.ok) throw new Error('Failed to fetch crawled files');
-        const files = await res.json();
+        const data = await res.json();
+        const files = data.files || [];
         crawledFilesList.innerHTML = files.map(file => `
           <tr class="${latestUrl === file.url ? 'latest-url' : ''}">
             <td>${file.url}</td>
@@ -853,7 +860,8 @@
       try {
         const res = await fetch('/queue');
         if (!res.ok) throw new Error('Failed to fetch queued crawls');
-        const queue = await res.json();
+        const data = await res.json();
+        const queue = data.queue || [];
         document.getElementById("queue-list").innerHTML = queue.map(item => `
           <tr>
             <td>${item.url}</td>
@@ -874,24 +882,21 @@
       btnText.textContent = 'Crawling...';
       btnSpinner.style.display = 'inline-block';
       cancelBtn.classList.remove('d-none');
+      downloadBtn.disabled = true;
       progressBar.style.width = '0%';
-      progressText.textContent = '0% - 0 pages crawled';
+      progressText.textContent = '0% (0 / 0 pages)';
       pagesCrawled = 0;
-      maxPages = parseInt(document.getElementById('max_pages').value) || 100;
+      pageValid = 0;
       logEl.innerHTML = '';
+      isCrawling = true;
 
       const formData = {
         url: document.getElementById('url').value,
-        max_tokens: document.getElementById('max_tokens').value,
         max_depth: document.getElementById('max_depth').value,
-        concurrency: document.getElementById('concurrency').value,
-        timeout: document.getElementById('timeout').value,
         max_pages: document.getElementById('max_pages').value,
         content_selector: document.getElementById('content-selector').value,
         sitemap_url: document.getElementById('sitemap-url').value
       };
-
-      startSSE();
 
       try {
         const response = await fetch('/start-crawl', {
@@ -900,18 +905,22 @@
           body: JSON.stringify(formData)
         });
         const data = await response.json();
-        if (data.error) addLog(data.error, 'error');
-        if (data.cached_data && confirm(data.message)) {
-          formData.force = true;
-          const forcedResponse = await fetch('/start-crawl', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(formData)
-          });
-          const forcedData = await forcedResponse.json();
-          addLog(forcedData.message);
+        if (response.ok) {
+          if (data.cached_data && confirm(`${data.message} Re-crawl?`)) {
+            formData.force = true;
+            const forcedResponse = await fetch('/start-crawl', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(formData)
+            });
+            const forcedData = await forcedResponse.json();
+            addLog(forcedData.message, 'info');
+          } else if (data.queued) {
+            addLog(data.message, 'info');
+          }
+        } else {
+          addLog(data.error || 'Failed to start crawl', 'error');
         }
-        if (data.queued) addLog(data.message, 'info');
       } catch (error) {
         addLog(`Error: ${error.message}`, 'error');
       } finally {
@@ -926,7 +935,14 @@
       try {
         const response = await fetch('/cancel', { method: 'POST' });
         const data = await response.json();
-        addLog(data.message || 'Crawl cancelled', 'info');
+        if (response.ok) {
+          addLog(`${data.message} (${data.pages_crawled}/${data.page_valid} pages)`, 'info');
+          pagesCrawled = data.pages_crawled;
+          pageValid = data.page_valid;
+          updateProgress();
+        } else {
+          addLog(data.message || 'Cancel failed', 'error');
+        }
       } catch (error) {
         addLog(`Cancel error: ${error.message}`, 'error');
       }
@@ -940,6 +956,33 @@
         addLog(data.message, 'info');
       } catch (error) {
         addLog(`Resume Queue error: ${error.message}`, 'error');
+      }
+    });
+
+    // Download button
+    downloadBtn.addEventListener('click', async () => {
+      try {
+        const response = await fetch('/download');
+        if (response.ok) {
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = response.headers.get('Content-Disposition')?.split('filename=')[1] || 'crawl_result.json';
+          a.click();
+          URL.revokeObjectURL(url);
+          addLog('Results downloaded successfully', 'success');
+        } else {
+          const data = await response.json();
+          addLog(data.error || 'Failed to download results', 'error');
+          if (data.progress) {
+            pagesCrawled = data.progress.pages_crawled;
+            pageValid = data.progress.page_valid;
+            updateProgress();
+          }
+        }
+      } catch (error) {
+        addLog(`Download error: ${error.message}`, 'error');
       }
     });
   </script>
