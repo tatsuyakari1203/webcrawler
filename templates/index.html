@@ -4,627 +4,515 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Doc Crawler</title>
-  <!-- Bootstrap CSS CDN -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
-    integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
-  <!-- Feather Icons CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
-  <!-- Chart.js CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <title>DocCrawler</title>
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
   <!-- Google Font: Inter -->
   <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+  <!-- Feather Icons CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+  <!-- Chart.js CDN with specific version -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+  
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter var', 'sans-serif'],
+          },
+          colors: {
+            dark: {
+              bg: '#0d1117',
+              card: '#161b22',
+              input: '#21262d',
+              border: '#30363d',
+              text: '#e6edf3',
+              muted: '#8b949e'
+            },
+            accent: {
+              blue: '#58a6ff',
+              green: '#4ade80',
+              red: '#f97583',
+              yellow: '#f0883e',
+              teal: '#56d4bc',
+              purple: '#d2a8ff'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  
   <style>
-    :root {
-      --bg-dark: #0d1117;
-      --card-dark: #161b22;
-      --input-dark: #21262d;
-      --accent: #58a6ff;
-      --error: #f97583;
-      --success: #4ade80;
-      --info: #17a2b8;
-      --warning: #adb5bd;
-      --text-muted: #8b949e;
-      --border-dark: #30363d;
-      --log-bg: #21262d;
-      --log-text: #e6edf3;
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
     }
-
-    body {
-      background-color: var(--bg-dark);
-      color: var(--log-text);
-      font-family: 'Inter', sans-serif;
-      margin: 0;
-      padding: 0;
-      display: flex;
-      flex-direction: column;
-      min-height: 100vh;
+    
+    .animate-pulse-slow {
+      animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
     }
-
-    .main-container {
-      max-width: 1400px;
-      margin: 0 auto;
-      padding: 20px;
-      flex-grow: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 20px;
-    }
-
-    header {
-      background-color: var(--card-dark);
-      border-bottom: 1px solid var(--border-dark);
-      padding: 15px 20px;
-    }
-
-    .header-content {
-      max-width: 1400px;
-      margin: 0 auto;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .header-title {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 1.25rem;
-      font-weight: 500;
-    }
-
-    .content-grid {
-      display: grid;
-      grid-template-columns: repeat(12, 1fr);
-      gap: 20px;
-      align-items: stretch;
-    }
-
-    .span-6 {
-      grid-column: span 6;
-    }
-
-    .span-12 {
-      grid-column: span 12;
-    }
-
-    .card {
-      background-color: var(--card-dark);
-      border: 1px solid var(--border-dark);
-      border-radius: 6px;
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .card h2,
-    .card h3 {
-      color: var(--log-text);
-      font-weight: 500;
-      margin-bottom: 15px;
-      font-size: 1.25rem;
-    }
-
-    .crawl-config-form {
-      display: flex;
-      flex-direction: column;
-      gap: 15px;
-      flex-grow: 1;
-    }
-
-    .form-field {
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-    }
-
-    .form-field label {
-      font-size: 0.9rem;
-      color: var(--text-muted);
-    }
-
-    .form-control {
-      background-color: var(--input-dark);
-      border: 1px solid var(--border-dark);
-      color: var(--log-text);
-      border-radius: 4px;
-      padding: 8px 12px;
-      font-size: 0.95rem;
-    }
-
-    .form-control:focus {
-      border-color: var(--accent);
-      box-shadow: none;
-      outline: none;
-    }
-
-    .form-control[readonly] {
-      background-color: #2a323c;
-      opacity: 0.8;
-    }
-
-    .form-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-    }
-
-    .form-row .form-field {
-      flex: 1;
-      min-width: 120px;
-    }
-
-    .button-group {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-top: auto;
-      justify-content: center;
-    }
-
-    .btn {
-      border: none;
-      border-radius: 4px;
-      padding: 8px 16px;
-      font-size: 0.95rem;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      transition: background-color 0.2s ease;
-    }
-
-    .btn-accent {
-      background-color: var(--accent);
-      color: white;
-    }
-
-    .btn-accent:hover {
-      background-color: #468cd9;
-    }
-
-    .btn-success {
-      background-color: var(--success);
-      color: #1a2e05;
-    }
-
-    .btn-success:hover {
-      background-color: #3ec06e;
-    }
-
-    .btn-error {
-      background-color: var(--error);
-      color: white;
-    }
-
-    .btn-error:hover {
-      background-color: #d95f6b;
-    }
-
-    .btn-info {
-      background-color: var(--info);
-      color: white;
-    }
-
-    .btn-info:hover {
-      background-color: #138496;
-    }
-
-    .btn:disabled {
-      background-color: #444;
-      cursor: not-allowed;
-    }
-
-    .btn:active:not(:disabled) {
-      transform: scale(0.98);
-      transition: transform 0.1s ease;
-    }
-
-    /* System Status Styling */
-    .system-status-container {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: space-between;
-      gap: 10px;
-      margin-bottom: 15px;
-      color: var(--log-text) !important;
-    }
-
-    .status-block {
-      background-color: var(--input-dark);
-      border: 2px solid;
-      border-radius: 8px;
-      padding: 8px 12px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 0.9rem;
-      width: 18%;
-      min-width: 120px;
-      justify-content: center;
-      text-align: center;
-      color: var(--log-text) !important;
-      flex-grow: 1;
-    }
-
-    .status-block i {
-      color: var(--log-text) !important;
-    }
-
-    .status-block.cpu {
-      border-color: var(--accent);
-    }
-
-    .status-block.ram {
-      border-color: var(--success);
-    }
-
-    .status-block.temp {
-      border-color: var(--error);
-    }
-
-    .status-block.state {
-      border-color: var(--info);
-    }
-
-    .current-urls {
-      color: var(--log-text) !important;
-      font-size: 0.9rem;
-      margin-bottom: 15px;
-      text-align: center;
-    }
-
-    /* Activity Log Styling */
-    .activity-log-card {
-      flex-grow: 1;
-    }
-
-    .log-container {
-      background-color: var(--log-bg);
-      border: 1px solid var(--border-dark);
-      border-radius: 4px;
-      padding: 12px;
-      max-height: 18rem;
-      overflow-y: auto;
-      font-size: 0.85rem;
-      font-family: monospace;
-      flex-grow: 1;
-    }
-
-    .log-entry {
-      display: flex;
-      align-items: center;
-      padding: 6px 0;
-    }
-
-    .log-entry:last-child {
-      border-bottom: none;
-    }
-
-    .log-icon {
-      margin-right: 8px;
-      flex-shrink: 0;
-    }
-
-    .log-success {
-      color: var(--success);
-    }
-
-    .log-error {
-      color: var(--error);
-    }
-
-    .log-info {
-      color: var(--info);
-    }
-
-    .log-warning {
-      color: var(--warning);
-    }
-
-    .custom-scroll::-webkit-scrollbar {
-      width: 6px;
-    }
-
-    .custom-scroll::-webkit-scrollbar-track {
-      background: var(--card-dark);
-      border-radius: 3px;
-    }
-
-    .custom-scroll::-webkit-scrollbar-thumb {
-      background: var(--border-dark);
-      border-radius: 3px;
-    }
-
+    
     @keyframes fadeIn {
-      from {
-        opacity: 0;
-        transform: translateY(10px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
     }
-
+    
     .fade-in {
       animation: fadeIn 0.3s ease-out forwards;
     }
-
-    .progress {
-      background-color: #2a323c;
-      border-radius: 4px;
-      height: 8px;
-      margin-top: 15px;
+    
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: rgba(22, 27, 34, 0.5);
+      border-radius: 3px;
+    }
+    
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: rgba(48, 54, 61, 0.8);
+      border-radius: 3px;
+    }
+    
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: rgba(88, 166, 255, 0.5);
+    }
+    
+    .grid-dashboard {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      grid-template-rows: auto;
+      gap: 1rem;
+    }
+    
+    .status-ring {
+      stroke-dasharray: 440;
+      stroke-dashoffset: 440;
+      transition: stroke-dashoffset 1s ease-in-out;
     }
 
-    .progress-bar {
-      background-color: var(--accent);
-      border-radius: 4px;
-      transition: width 0.5s ease-in-out;
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 9999px;
+      padding: 0.25rem 0.75rem;
+      font-size: 0.75rem;
+      font-weight: 500;
     }
 
-    .progress-text {
-      color: var(--text-muted);
-      font-size: 0.85rem;
-      margin-top: 5px;
+    .tag-blue {
+      background-color: rgba(88, 166, 255, 0.2);
+      color: #58a6ff;
     }
 
-    .log-actions {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      margin-top: 15px;
+    .tag-green {
+      background-color: rgba(74, 222, 128, 0.2);
+      color: #4ade80;
     }
 
-    .table-dark {
-      background-color: var(--card-dark);
-      color: var(--log-text);
-      margin-bottom: 0;
+    .tag-red {
+      background-color: rgba(249, 117, 131, 0.2);
+      color: #f97583;
     }
 
-    .table-dark th,
-    .table-dark td {
-      border-color: var(--border-dark);
-      padding: 10px;
+    .tag-yellow {
+      background-color: rgba(240, 136, 62, 0.2);
+      color: #f0883e;
     }
 
-    .table-dark tr:nth-child(even) {
-      background-color: #1c2526;
+    .tag-purple {
+      background-color: rgba(210, 168, 255, 0.2);
+      color: #d2a8ff;
     }
 
-    .table-dark tr.latest-url {
-      background: linear-gradient(to right, rgba(74, 222, 128, 0.2), transparent);
-    }
-
-    .toast {
-      max-width: 280px;
-      border: none;
-      border-radius: 4px;
-      background-color: var(--card-dark);
-      color: var(--log-text);
-    }
-
-    .toast-success .toast-body {
-      color: var(--success);
-    }
-
-    .toast-error .toast-body {
-      color: var(--error);
-    }
-
-    .toast-info .toast-body {
-      color: var(--info);
-    }
-
-    .toast-container {
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      z-index: 1050;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      align-items: flex-end;
-    }
-
-    footer {
-      background-color: var(--card-dark);
-      border-top: 1px solid var(--border-dark);
-      padding: 15px 20px;
-      text-align: center;
-      color: var(--text-muted);
-    }
-
-    footer a {
-      color: var(--accent);
-      text-decoration: none;
-    }
-
-    @media (max-width: 992px) {
-      .content-grid {
-        grid-template-columns: repeat(1, 1fr);
-      }
-      .span-6,
-      .span-12 {
-        grid-column: span 1;
-      }
-      .status-block {
-        width: 48%;
-      }
-    }
-
-    @media (max-width: 576px) {
-      .main-container {
-        padding: 15px;
-      }
-      .form-row {
-        flex-direction: column;
-      }
-      .system-status-container {
-        flex-direction: column;
-        align-items: center;
-        gap: 8px;
-      }
-      .status-block {
-        width: 100%;
-      }
-      .button-group {
-        flex-direction: column;
-        gap: 8px;
-      }
-      .btn {
-        width: 100%;
-        justify-content: center;
-      }
-      .log-actions {
-        flex-direction: column;
-        align-items: stretch;
-      }
+    .tag-gray {
+      background-color: rgba(139, 148, 158, 0.2);
+      color: #8b949e;
     }
   </style>
 </head>
 
-<body>
-  <!-- Header -->
-  <header>
-    <div class="header-content">
-      <div class="header-title">
-        <i data-feather="search" class="text-accent" style="width: 20px; height: 20px;"></i>
-        <span>Web Crawler</span>
+<body class="bg-dark-bg text-dark-text min-h-screen flex flex-col">
+  <!-- Header Bar -->
+  <header class="bg-dark-card border-b border-dark-border sticky top-0 z-10">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex justify-between items-center">
+      <div class="flex items-center space-x-3">
+        <div class="flex items-center justify-center h-10 w-10 rounded-lg bg-accent-blue bg-opacity-20">
+          <i data-feather="search" class="text-accent-blue h-5 w-5"></i>
+        </div>
+        <div>
+          <h1 class="text-xl font-semibold">DocCrawler</h1>
+          <p class="text-dark-muted text-xs">Web content extraction tool</p>
+        </div>
       </div>
-      <div class="d-flex align-items-center gap-3">
-        <span class="small text-muted-custom">v1.0.0</span>
-        <span class="small text-muted-custom">by tatsuyakari</span>
+      
+      <div class="flex items-center space-x-4">
+        <span class="text-dark-muted text-sm hidden sm:inline-block">v1.3.0</span>
+        <a href="#" class="flex items-center text-sm space-x-1 text-accent-blue hover:text-accent-blue hover:underline">
+          <i data-feather="github" class="h-4 w-4"></i>
+          <span>tatsuyakari</span>
+        </a>
+        <a href="#" class="bg-dark-input hover:bg-opacity-80 text-sm px-3 py-1.5 rounded-md flex items-center space-x-1 transition-colors duration-200">
+          <i data-feather="help-circle" class="h-4 w-4"></i>
+          <span class="hidden sm:inline">Help</span>
+        </a>
       </div>
     </div>
   </header>
 
   <!-- Main Content -->
-  <div class="main-container">
-    <div class="content-grid">
-      <!-- Crawl Configuration -->
-      <section class="crawl-config-card card span-6">
-        <h2>Crawl Configuration</h2>
-        <form id="crawl-form" class="crawl-config-form">
-          <div class="form-field">
-            <label for="url">Root URL</label>
-            <input type="url" id="url" class="form-control" placeholder="https://example.com/docs" required>
-          </div>
-          <div class="form-field">
-            <label for="content-selector">Content Selector (Optional)</label>
-            <input type="text" id="content-selector" class="form-control" placeholder="e.g., div#content or .main-content">
-          </div>
-          <div class="form-field">
-            <label for="sitemap-url">Sitemap URL (Optional)</label>
-            <input type="text" id="sitemap-url" class="form-control" placeholder="e.g., https://example.com/sitemap.xml">
-          </div>
-          <div class="form-row">
-            <div class="form-field">
-              <label for="max_depth">Max Depth</label>
-              <input type="number" id="max_depth" class="form-control" value="2" min="1">
-            </div>
-            <div class="form-field">
-              <label for="max_pages">Max Pages</label>
-              <input type="number" id="max_pages" class="form-control" value="100" min="1">
+  <div class="max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 flex-grow">
+    <div class="grid-dashboard">
+      <!-- Left Column -->
+      <div class="col-span-12 lg:col-span-5 xl:col-span-4 flex flex-col space-y-6">
+        <!-- Crawl Configuration -->
+        <div class="bg-dark-card rounded-xl shadow-lg border border-dark-border p-5">
+          <div class="flex items-center justify-between mb-5">
+            <h2 class="text-lg font-medium flex items-center">
+              <i data-feather="settings" class="mr-2 h-5 w-5 text-accent-teal"></i>
+              Crawl Configuration
+            </h2>
+            <div class="flex items-center space-x-1 bg-dark-input bg-opacity-60 rounded-md px-2 py-1 text-dark-muted text-xs">
+              <i data-feather="clock" class="h-3.5 w-3.5"></i>
+              <span id="last-crawl">Never</span>
             </div>
           </div>
-          <div class="button-group">
-            <button type="submit" id="crawl-btn" class="btn btn-accent">
-              <span id="btn-text">Start Crawl</span>
-              <i data-feather="loader" id="btn-spinner" style="width: 16px; height: 16px; display: none;"></i>
-            </button>
-            <button type="button" id="cancel-btn" class="btn btn-error d-none">
-              <i data-feather="x" style="width: 16px; height: 16px;"></i>Cancel
-            </button>
-            <button type="button" id="resume-btn" class="btn btn-info">
-              <i data-feather="play" style="width: 16px; height: 16px;"></i>Resume Queue
-            </button>
+          
+          <form id="crawl-form" class="space-y-4">
+            <div class="space-y-2">
+              <div class="flex justify-between">
+                <label for="url" class="text-sm font-medium text-dark-muted flex items-center">
+                  Root URL
+                  <span class="group relative ml-1 cursor-help">
+                    <i data-feather="info" class="h-3.5 w-3.5 text-accent-blue"></i>
+                    <span class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 rounded bg-dark-input p-2 text-xs invisible group-hover:visible shadow-lg z-10">
+                      Starting point for the crawler to begin extraction
+                    </span>
+                  </span>
+                </label>
+                <span class="text-xs text-dark-muted">Required</span>
+              </div>
+              <div class="relative">
+                <i data-feather="globe" class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-dark-muted"></i>
+                <input type="url" id="url" class="w-full bg-dark-input border border-dark-border focus:border-accent-blue rounded-lg py-2.5 pl-10 pr-3 text-sm focus:outline-none focus:ring-1 focus:ring-accent-blue transition-colors" placeholder="https://example.com/docs" required>
+              </div>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-4">
+              <div class="space-y-2">
+                <div class="flex justify-between">
+                  <label for="max_depth" class="text-sm font-medium text-dark-muted flex items-center">
+                    Max Depth
+                    <span class="group relative ml-1 cursor-help">
+                      <i data-feather="info" class="h-3.5 w-3.5 text-accent-blue"></i>
+                      <span class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 rounded bg-dark-input p-2 text-xs invisible group-hover:visible shadow-lg z-10">
+                        Number of link levels to follow from the root
+                      </span>
+                    </span>
+                  </label>
+                </div>
+                <div class="relative">
+                  <i data-feather="layers" class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-dark-muted"></i>
+                  <input type="number" id="max_depth" class="w-full bg-dark-input border border-dark-border focus:border-accent-blue rounded-lg py-2.5 pl-10 pr-3 text-sm focus:outline-none focus:ring-1 focus:ring-accent-blue transition-colors" value="2" min="1">
+                </div>
+              </div>
+              
+              <div class="space-y-2">
+                <div class="flex justify-between">
+                  <label for="max_pages" class="text-sm font-medium text-dark-muted flex items-center">
+                    Max Pages
+                    <span class="group relative ml-1 cursor-help">
+                      <i data-feather="info" class="h-3.5 w-3.5 text-accent-blue"></i>
+                      <span class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 rounded bg-dark-input p-2 text-xs invisible group-hover:visible shadow-lg z-10">
+                        Maximum number of pages to crawl
+                      </span>
+                    </span>
+                  </label>
+                </div>
+                <div class="relative">
+                  <i data-feather="file" class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-dark-muted"></i>
+                  <input type="number" id="max_pages" class="w-full bg-dark-input border border-dark-border focus:border-accent-blue rounded-lg py-2.5 pl-10 pr-3 text-sm focus:outline-none focus:ring-1 focus:ring-accent-blue transition-colors" value="100" min="1">
+                </div>
+              </div>
+            </div>
+            
+            <div class="space-y-2">
+              <div class="flex justify-between">
+                <label for="content-selector" class="text-sm font-medium text-dark-muted flex items-center">
+                  Content Selector
+                  <span class="group relative ml-1 cursor-help">
+                    <i data-feather="info" class="h-3.5 w-3.5 text-accent-blue"></i>
+                    <span class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 rounded bg-dark-input p-2 text-xs invisible group-hover:visible shadow-lg z-10">
+                      CSS selector to extract specific content (e.g. "div.main-content")
+                    </span>
+                  </span>
+                </label>
+                <span class="text-xs text-dark-muted">Optional</span>
+              </div>
+              <div class="relative">
+                <i data-feather="code" class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-dark-muted"></i>
+                <input type="text" id="content-selector" class="w-full bg-dark-input border border-dark-border focus:border-accent-blue rounded-lg py-2.5 pl-10 pr-3 text-sm focus:outline-none focus:ring-1 focus:ring-accent-blue transition-colors" placeholder="e.g., div#content or .main-content">
+              </div>
+            </div>
+            
+            <div class="space-y-2">
+              <div class="flex justify-between">
+                <label for="sitemap-url" class="text-sm font-medium text-dark-muted flex items-center">
+                  Sitemap URL
+                  <span class="group relative ml-1 cursor-help">
+                    <i data-feather="info" class="h-3.5 w-3.5 text-accent-blue"></i>
+                    <span class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 rounded bg-dark-input p-2 text-xs invisible group-hover:visible shadow-lg z-10">
+                      Optional sitemap.xml URL to prioritize crawling
+                    </span>
+                  </span>
+                </label>
+                <span class="text-xs text-dark-muted">Optional</span>
+              </div>
+              <div class="relative">
+                <i data-feather="map" class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-dark-muted"></i>
+                <input type="text" id="sitemap-url" class="w-full bg-dark-input border border-dark-border focus:border-accent-blue rounded-lg py-2.5 pl-10 pr-3 text-sm focus:outline-none focus:ring-1 focus:ring-accent-blue transition-colors" placeholder="e.g., https://example.com/sitemap.xml">
+              </div>
+            </div>
+            
+            <div class="pt-2 flex flex-col sm:flex-row items-center gap-3">
+              <button type="submit" id="crawl-btn" class="w-full sm:flex-1 bg-accent-blue hover:bg-opacity-90 focus:ring-2 focus:ring-offset-2 focus:ring-offset-dark-card focus:ring-accent-blue rounded-lg px-4 py-2.5 text-white font-medium flex items-center justify-center space-x-2 transition-all duration-200">
+                <i data-feather="play" class="h-4 w-4"></i>
+                <span id="btn-text">Start Crawl</span>
+                <svg id="btn-spinner" class="animate-spin ml-1 h-4 w-4 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              </button>
+              
+              <button type="button" id="cancel-btn" class="w-full sm:flex-1 bg-accent-red bg-opacity-20 hover:bg-opacity-30 text-accent-red border border-accent-red border-opacity-30 rounded-lg px-4 py-2.5 font-medium flex items-center justify-center space-x-2 transition-all duration-200 hidden">
+                <i data-feather="x" class="h-4 w-4"></i>
+                <span>Cancel</span>
+              </button>
+              
+              <button type="button" id="resume-btn" class="w-full sm:flex-1 bg-accent-yellow bg-opacity-20 hover:bg-opacity-30 text-accent-yellow border border-accent-yellow border-opacity-30 rounded-lg px-4 py-2.5 font-medium flex items-center justify-center space-x-2 transition-all duration-200">
+                <i data-feather="refresh-cw" class="h-4 w-4"></i>
+                <span>Resume Queue</span>
+              </button>
+            </div>
+          </form>
+        </div>
+        
+        <!-- System Status -->
+        <div class="bg-dark-card rounded-xl shadow-lg border border-dark-border p-5 h-auto flex flex-col">
+          <div class="flex items-center justify-between mb-5">
+            <h2 class="text-lg font-medium flex items-center">
+              <i data-feather="activity" class="mr-2 h-5 w-5 text-accent-yellow"></i>
+              System Status
+            </h2>
+            <div id="state-status" class="tag tag-gray">
+              <span class="h-2 w-2 rounded-full bg-gray-500 mr-1.5"></span>
+              <span>Idle</span>
+            </div>
           </div>
-        </form>
-      </section>
-
-      <!-- System Status -->
-      <section class="system-status-card card span-6">
-        <h3>System Status</h3>
-        <div class="system-status-container">
-          <div class="status-block cpu" id="cpu-status">
-            <i data-feather="cpu"></i>CPU: --%
+          
+          <div class="flex justify-between mb-6">
+            <!-- CPU Status -->
+            <div class="flex flex-col items-center">
+              <div class="relative w-20 h-20">
+                <svg class="w-20 h-20 -rotate-90" viewBox="0 0 160 160">
+                  <circle cx="80" cy="80" r="70" fill="none" stroke="#30363d" stroke-width="12" />
+                  <circle id="cpu-ring" cx="80" cy="80" r="70" fill="none" stroke="#58a6ff" stroke-width="12" 
+                         class="status-ring" style="stroke-dashoffset: 440;" />
+                </svg>
+                <div class="absolute inset-0 flex flex-col items-center justify-center">
+                  <i data-feather="cpu" class="h-5 w-5 mb-1 text-accent-blue"></i>
+                  <span id="cpu-status" class="text-sm font-semibold">0%</span>
+                </div>
+              </div>
+              <span class="text-xs text-dark-muted mt-2">CPU</span>
+            </div>
+            
+            <!-- RAM Status -->
+            <div class="flex flex-col items-center">
+              <div class="relative w-20 h-20">
+                <svg class="w-20 h-20 -rotate-90" viewBox="0 0 160 160">
+                  <circle cx="80" cy="80" r="70" fill="none" stroke="#30363d" stroke-width="12" />
+                  <circle id="ram-ring" cx="80" cy="80" r="70" fill="none" stroke="#4ade80" stroke-width="12"
+                         class="status-ring" style="stroke-dashoffset: 440;" />
+                </svg>
+                <div class="absolute inset-0 flex flex-col items-center justify-center">
+                  <i data-feather="database" class="h-5 w-5 mb-1 text-accent-green"></i>
+                  <span id="ram-status" class="text-sm font-semibold">0%</span>
+                </div>
+              </div>
+              <span class="text-xs text-dark-muted mt-2">Memory</span>
+            </div>
+            
+            <!-- Temperature Status -->
+            <div class="flex flex-col items-center">
+              <div class="relative w-20 h-20">
+                <svg class="w-20 h-20 -rotate-90" viewBox="0 0 160 160">
+                  <circle cx="80" cy="80" r="70" fill="none" stroke="#30363d" stroke-width="12" />
+                  <circle id="temp-ring" cx="80" cy="80" r="70" fill="none" stroke="#f97583" stroke-width="12"
+                         class="status-ring" style="stroke-dashoffset: 440;" />
+                </svg>
+                <div class="absolute inset-0 flex flex-col items-center justify-center">
+                  <i data-feather="thermometer" class="h-5 w-5 mb-1 text-accent-red"></i>
+                  <span id="temp-status" class="text-sm font-semibold">--°C</span>
+                </div>
+              </div>
+              <span class="text-xs text-dark-muted mt-2">Temperature</span>
+            </div>
           </div>
-          <div class="status-block ram" id="ram-status">
-            <i data-feather="database"></i>RAM: --%
+          
+          <div class="grid grid-cols-2 gap-3 mb-4">
+            <div class="bg-dark-input bg-opacity-60 rounded-lg p-3 text-center">
+              <div class="text-xs text-dark-muted mb-1">Token Count</div>
+              <div id="token-count" class="text-lg font-medium text-accent-teal">0</div>
+            </div>
+            <div class="bg-dark-input bg-opacity-60 rounded-lg p-3 text-center">
+              <div class="text-xs text-dark-muted mb-1">Errors</div>
+              <div id="error-count" class="text-lg font-medium text-accent-red">0</div>
+            </div>
           </div>
-          <div class="status-block temp" id="temp-status">
-            <i data-feather="thermometer"></i>Temp: --°C
+          
+          <div id="current-urls" class="text-sm mb-4 py-2 px-3 bg-dark-input bg-opacity-60 rounded-lg max-h-24 overflow-y-auto custom-scrollbar">
+            <div class="text-center text-dark-muted">No active crawling</div>
           </div>
-          <div class="status-block state" id="state-status">
-            <i data-feather="activity"></i>State: NONE
+          
+          <div class="chart-container" style="position: relative; height:180px; width:100%">
+            <canvas id="systemChart"></canvas>
           </div>
         </div>
-        <div class="current-urls" id="current-urls">Currently Crawling: None</div>
-        <canvas id="systemChart" style="max-height: 200px; flex-grow: 1;"></canvas>
-      </section>
-
-      <!-- Activity Log -->
-      <section class="activity-log-card card span-12">
-        <h3>Activity Log</h3>
-        <div id="log" class="log-container custom-scroll"></div>
-        <div class="progress">
-          <div id="progress-bar" class="progress-bar" style="width: 0%;"></div>
+      </div>
+      
+      <!-- Right Column -->
+      <div class="col-span-12 lg:col-span-7 xl:col-span-8 space-y-6">
+        <!-- Progress and Activity -->
+        <div class="bg-dark-card rounded-xl shadow-lg border border-dark-border p-5">
+          <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-5 gap-3">
+            <h2 class="text-lg font-medium flex items-center">
+              <i data-feather="terminal" class="mr-2 h-5 w-5 text-accent-green"></i>
+              Activity Log & Progress
+            </h2>
+            
+            <div class="flex flex-wrap gap-2">
+              <button class="bg-dark-input hover:bg-opacity-80 px-3 py-1.5 rounded-md text-sm flex items-center space-x-1.5 transition-colors" onclick="exportLog()">
+                <i data-feather="download" class="h-4 w-4"></i>
+                <span>Export Log</span>
+              </button>
+              
+              <button id="download-btn" disabled class="bg-accent-green text-dark-bg hover:bg-opacity-90 px-3 py-1.5 rounded-md text-sm font-medium flex items-center space-x-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                <i data-feather="download-cloud" class="h-4 w-4"></i>
+                <span>Download Results</span>
+              </button>
+            </div>
+          </div>
+          
+          <div class="mb-4">
+            <div class="flex justify-between text-sm mb-1.5">
+              <div class="flex items-center space-x-2">
+                <span class="font-medium">Crawl Progress</span>
+                <span id="progress-percent" class="text-accent-blue">0%</span>
+              </div>
+              <div id="progress-count" class="text-dark-muted">0 / 0 pages</div>
+            </div>
+            
+            <div class="h-2 w-full bg-dark-input rounded-full overflow-hidden">
+              <div id="progress-bar" class="h-full bg-accent-blue rounded-full transition-all duration-500" style="width: 0%"></div>
+            </div>
+          </div>
+          
+          <div id="log" class="bg-dark-input rounded-lg p-3 h-80 overflow-y-auto custom-scrollbar font-mono text-xs leading-relaxed"></div>
         </div>
-        <p id="progress-text" class="progress-text">0% (0 / 0 pages)</p>
-        <div class="log-actions">
-          <button class="btn btn-accent btn-sm" onclick="exportLog()">Export Log</button>
-          <button class="btn btn-success btn-sm" id="download-btn" disabled>Download Results</button>
+        
+        <!-- Tabs for Crawled Files and Queue -->
+        <div class="bg-dark-card rounded-xl shadow-lg border border-dark-border">
+          <div class="border-b border-dark-border">
+            <nav class="flex" aria-label="Tabs">
+              <button id="tab-crawled" class="px-4 py-3 text-sm font-medium border-b-2 border-accent-blue text-accent-blue flex items-center space-x-2" aria-selected="true">
+                <i data-feather="file-text" class="h-4 w-4"></i>
+                <span>Crawled Files</span>
+                <span id="crawled-count" class="ml-1 inline-flex items-center justify-center rounded-full bg-accent-blue bg-opacity-20 px-2 py-0.5 text-xs text-accent-blue">0</span>
+              </button>
+              <button id="tab-queue" class="px-4 py-3 text-sm font-medium border-b-2 border-transparent text-dark-muted hover:text-dark-text flex items-center space-x-2" aria-selected="false">
+                <i data-feather="list" class="h-4 w-4"></i>
+                <span>Queue</span>
+                <span id="queue-count" class="ml-1 inline-flex items-center justify-center rounded-full bg-dark-muted bg-opacity-20 px-2 py-0.5 text-xs text-dark-muted">0</span>
+              </button>
+            </nav>
+          </div>
+          
+          <!-- Crawled Files Tab Panel -->
+          <div id="panel-crawled" class="p-0">
+            <div class="overflow-x-auto custom-scrollbar">
+              <table class="w-full">
+                <thead class="bg-dark-input bg-opacity-50">
+                  <tr>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-dark-muted uppercase tracking-wider">URL</th>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-dark-muted uppercase tracking-wider">Last Updated</th>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-dark-muted uppercase tracking-wider">Pages</th>
+                    <th class="px-4 py-3 text-right text-xs font-semibold text-dark-muted uppercase tracking-wider">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="crawled-files-list" class="divide-y divide-dark-border">
+                  <!-- Data will be populated via JavaScript -->
+                  <tr>
+                    <td colspan="4" class="px-4 py-6 text-center text-dark-muted text-sm">
+                      No files have been crawled yet
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          
+          <!-- Queue Tab Panel (Hidden by default) -->
+          <div id="panel-queue" class="p-0 hidden">
+            <div class="overflow-x-auto custom-scrollbar">
+              <table class="w-full">
+                <thead class="bg-dark-input bg-opacity-50">
+                  <tr>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-dark-muted uppercase tracking-wider">URL</th>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-dark-muted uppercase tracking-wider">Config</th>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-dark-muted uppercase tracking-wider">Submitted At</th>
+                  </tr>
+                </thead>
+                <tbody id="queue-list" class="divide-y divide-dark-border">
+                  <!-- Data will be populated via JavaScript -->
+                  <tr>
+                    <td colspan="3" class="px-4 py-6 text-center text-dark-muted text-sm">
+                      No crawls are currently queued
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
-      </section>
-
-      <!-- Crawled Files List -->
-      <section class="card span-6">
-        <h3>Crawled Files</h3>
-        <table class="table table-dark table-striped">
-          <thead>
-            <tr>
-              <th>URL</th>
-              <th>Last Updated</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody id="crawled-files-list"></tbody>
-        </table>
-      </section>
-
-      <!-- Queued Crawls List -->
-      <section class="card span-6">
-        <h3>Queued Crawls</h3>
-        <table class="table table-dark table-striped">
-          <thead>
-            <tr>
-              <th>URL</th>
-              <th>Submitted At</th>
-            </tr>
-          </thead>
-          <tbody id="queue-list"></tbody>
-        </table>
-      </section>
+      </div>
     </div>
   </div>
 
   <!-- Toast Container -->
-  <div class="toast-container"></div>
+  <div class="toast-container fixed bottom-4 right-4 z-50 flex flex-col space-y-2 items-end"></div>
 
   <!-- Footer -->
-  <footer>
-    <small>Built by <a href="https://github.com/tatsuyakari1203">tatsuyakari</a> · 2025</small>
+  <footer class="bg-dark-card border-t border-dark-border py-4 text-center text-dark-muted text-sm">
+    <div class="max-w-7xl mx-auto px-4">
+      <span>&copy; 2025 Built by <a href="#" class="text-accent-blue hover:underline">tatsuyakari</a></span>
+      <span class="mx-2">·</span>
+      <a href="#" class="text-dark-muted hover:text-dark-text hover:underline">Privacy</a>
+      <span class="mx-2">·</span>
+      <a href="#" class="text-dark-muted hover:text-dark-text hover:underline">Terms</a>
+    </div>
   </footer>
 
-  <!-- Bootstrap JS CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
-    integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
-    crossorigin="anonymous"></script>
-  <!-- JavaScript -->
   <script>
+    // Initialize Feather Icons
     feather.replace();
 
+    // Get DOM elements
     const form = document.getElementById('crawl-form');
     const logEl = document.getElementById('log');
     const crawlBtn = document.getElementById('crawl-btn');
@@ -634,45 +522,241 @@
     const resumeBtn = document.getElementById('resume-btn');
     const downloadBtn = document.getElementById('download-btn');
     const progressBar = document.getElementById('progress-bar');
-    const progressText = document.getElementById('progress-text');
+    const progressText = document.getElementById('progress-count');
+    const progressPercent = document.getElementById('progress-percent');
     const cpuStatus = document.getElementById('cpu-status');
     const ramStatus = document.getElementById('ram-status');
     const tempStatus = document.getElementById('temp-status');
     const stateStatus = document.getElementById('state-status');
     const currentUrlsEl = document.getElementById('current-urls');
+    const tokenCountEl = document.getElementById('token-count');
+    const errorCountEl = document.getElementById('error-count');
     const toastContainer = document.querySelector('.toast-container');
     const crawledFilesList = document.getElementById('crawled-files-list');
+    const queueList = document.getElementById('queue-list');
+    const tabCrawled = document.getElementById('tab-crawled');
+    const tabQueue = document.getElementById('tab-queue');
+    const panelCrawled = document.getElementById('panel-crawled');
+    const panelQueue = document.getElementById('panel-queue');
+    const crawledCountEl = document.getElementById('crawled-count');
+    const queueCountEl = document.getElementById('queue-count');
+    
+    // Status rings
+    const cpuRing = document.getElementById('cpu-ring');
+    const ramRing = document.getElementById('ram-ring');
+    const tempRing = document.getElementById('temp-ring');
 
     let eventSource;
     let pagesCrawled = 0;
     let pageValid = 0;
     let isCrawling = false;
     let latestUrl = null;
+    let currentState = "IDLE";
+    let errorCount = 0;
+    let tokenCount = 0;
+
+    // State to status mapping
+    const stateMap = {
+      "IDLE": { tag: "tag-gray", icon: "circle", text: "Idle", color: "bg-gray-500" },
+      "INITIALIZING": { tag: "tag-blue", icon: "loader", text: "Initializing", color: "bg-accent-blue animate-pulse-slow" },
+      "CRAWLING": { tag: "tag-yellow", icon: "activity", text: "Crawling", color: "bg-accent-yellow animate-pulse-slow" },
+      "CANCELLING": { tag: "tag-red", icon: "x-circle", text: "Cancelling", color: "bg-accent-red animate-pulse-slow" },
+      "COMPLETED": { tag: "tag-green", icon: "check-circle", text: "Completed", color: "bg-accent-green" },
+      "ERROR": { tag: "tag-red", icon: "alert-triangle", text: "Error", color: "bg-accent-red" }
+    };
+
+    // Update the state status indicator
+    function updateStateStatus(state) {
+      currentState = state;
+      const statusInfo = stateMap[state] || stateMap.IDLE;
+      
+      stateStatus.className = `tag ${statusInfo.tag}`;
+      stateStatus.innerHTML = `
+        <span class="h-2 w-2 rounded-full ${statusInfo.color} mr-1.5"></span>
+        <span>${statusInfo.text}</span>
+      `;
+    }
+
+    // Tab functionality
+    tabCrawled.addEventListener('click', () => {
+      tabCrawled.classList.add('border-accent-blue', 'text-accent-blue');
+      tabCrawled.classList.remove('border-transparent', 'text-dark-muted');
+      tabQueue.classList.remove('border-accent-blue', 'text-accent-blue');
+      tabQueue.classList.add('border-transparent', 'text-dark-muted');
+      panelCrawled.classList.remove('hidden');
+      panelQueue.classList.add('hidden');
+      tabCrawled.setAttribute('aria-selected', 'true');
+      tabQueue.setAttribute('aria-selected', 'false');
+      updateCrawledFiles();
+    });
+    
+    tabQueue.addEventListener('click', () => {
+      tabQueue.classList.add('border-accent-blue', 'text-accent-blue');
+      tabQueue.classList.remove('border-transparent', 'text-dark-muted');
+      tabCrawled.classList.remove('border-accent-blue', 'text-accent-blue');
+      tabCrawled.classList.add('border-transparent', 'text-dark-muted');
+      panelQueue.classList.remove('hidden');
+      panelCrawled.classList.add('hidden');
+      tabQueue.setAttribute('aria-selected', 'true');
+      tabCrawled.setAttribute('aria-selected', 'false');
+      updateQueueList();
+    });
 
     // Chart initialization
-    const ctx = document.getElementById('systemChart').getContext('2d');
-    const systemChart = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: [],
-        datasets: [
-          { label: 'CPU (%)', data: [], borderColor: '#58a6ff', tension: 0.1, fill: false },
-          { label: 'RAM (%)', data: [], borderColor: '#4ade80', tension: 0.1, fill: false },
-          { label: 'Temp (°C)', data: [], borderColor: '#f97583', tension: 0.1, fill: false }
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          x: { display: true, ticks: { color: '#8b949e' } },
-          y: { beginAtZero: true, max: 100, ticks: { color: '#8b949e' } }
-        },
-        plugins: {
-          legend: { labels: { color: '#e6edf3' } }
+    function initChart() {
+      try {
+        if (!Chart) {
+          console.error('Chart.js not loaded properly');
+          return null;
         }
+        
+        Chart.defaults.color = '#8b949e';
+        Chart.defaults.borderColor = 'rgba(48, 54, 61, 0.5)';
+        
+        const ctx = document.getElementById('systemChart');
+        if (!ctx) {
+          console.error('Canvas element not found');
+          return null;
+        }
+        
+        // Destroy existing chart if it exists
+        if (window.systemChart instanceof Chart) {
+          window.systemChart.destroy();
+        }
+        
+        window.systemChart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: Array(10).fill(''),
+            datasets: [
+              { 
+                label: 'CPU (%)', 
+                data: Array(10).fill(0), 
+                borderColor: '#58a6ff',
+                backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                tension: 0.2,
+                fill: true,
+                pointRadius: 1,
+                pointHoverRadius: 4,
+                borderWidth: 2
+              },
+              { 
+                label: 'RAM (%)', 
+                data: Array(10).fill(0), 
+                borderColor: '#4ade80',
+                backgroundColor: 'rgba(74, 222, 128, 0.1)',
+                tension: 0.2,
+                fill: true,
+                pointRadius: 1,
+                pointHoverRadius: 4,
+                borderWidth: 2
+              },
+              { 
+                label: 'Temp (°C)', 
+                data: Array(10).fill(0), 
+                borderColor: '#f97583',
+                backgroundColor: 'rgba(249, 117, 131, 0.1)',
+                tension: 0.2,
+                fill: true,
+                pointRadius: 1,
+                pointHoverRadius: 4,
+                borderWidth: 2
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: {
+              duration: 300
+            },
+            scales: {
+              x: { 
+                display: true,
+                grid: {
+                  display: false,
+                  drawBorder: false
+                },
+                ticks: { 
+                  color: '#8b949e',
+                  maxRotation: 0,
+                  autoSkip: true,
+                  maxTicksLimit: 5
+                } 
+              },
+              y: { 
+                beginAtZero: true,
+                max: 100,
+                grid: {
+                  color: 'rgba(48, 54, 61, 0.5)',
+                  drawBorder: false
+                },
+                ticks: { 
+                  color: '#8b949e',
+                  stepSize: 25,
+                  padding: 8
+                } 
+              }
+            },
+            plugins: {
+              legend: {
+                display: true,
+                position: 'top',
+                align: 'end',
+                labels: {
+                  color: '#e6edf3',
+                  boxWidth: 12,
+                  boxHeight: 12,
+                  padding: 10,
+                  font: {
+                    size: 11
+                  },
+                  usePointStyle: true,
+                  pointStyle: 'circle'
+                }
+              },
+              tooltip: {
+                backgroundColor: 'rgba(22, 27, 34, 0.9)',
+                titleColor: '#e6edf3',
+                bodyColor: '#e6edf3',
+                borderColor: 'rgba(48, 54, 61, 0.8)',
+                borderWidth: 1,
+                padding: 10,
+                displayColors: true,
+                usePointStyle: true,
+                mode: 'index',
+                intersect: false,
+                callbacks: {
+                  title: function(tooltipItems) {
+                    return tooltipItems[0].label || 'System Metrics';
+                  }
+                }
+              }
+            }
+          }
+        });
+        
+        return window.systemChart;
+      } catch (error) {
+        console.error('Error initializing chart:', error);
+        return null;
       }
+    }
+    
+    // Initialize chart after DOM is fully loaded
+    document.addEventListener('DOMContentLoaded', function() {
+      setTimeout(() => {
+        const chart = initChart();
+        if (!chart) {
+          document.querySelector('.chart-container').innerHTML = '<div class="p-4 text-center text-dark-muted">Chart initialization failed. Refresh to try again.</div>';
+        }
+      }, 500);
     });
+
+    // Format number with commas for thousands separators
+    function formatNumber(num) {
+      return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    }
 
     // Debounce function
     function debounce(func, wait) {
@@ -683,21 +767,54 @@
       };
     }
 
-    // Show toast
+    // Show toast notification
     function showToast(message, type = 'info') {
       const toast = document.createElement('div');
-      toast.className = `toast align-items-center fade-in toast-${type}`;
-      toast.role = 'alert';
+      toast.className = `fade-in max-w-xs bg-dark-card border ${
+        type === 'error' ? 'border-accent-red' : 
+        type === 'success' ? 'border-accent-green' : 
+        'border-accent-blue'
+      } rounded-lg shadow-lg overflow-hidden`;
+      
       toast.innerHTML = `
-        <div class="d-flex">
-          <div class="toast-body">${message}</div>
-          <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        <div class="flex p-4">
+          <div class="flex-shrink-0 ${
+            type === 'error' ? 'text-accent-red' : 
+            type === 'success' ? 'text-accent-green' : 
+            'text-accent-blue'
+          }">
+            <i data-feather="${
+              type === 'error' ? 'alert-circle' : 
+              type === 'success' ? 'check-circle' : 
+              'info'
+            }" class="h-5 w-5"></i>
+          </div>
+          <div class="ml-3">
+            <p class="text-sm text-dark-text">${message}</p>
+          </div>
+          <div class="ml-auto pl-3">
+            <button class="text-dark-muted hover:text-dark-text">
+              <i data-feather="x" class="h-4 w-4"></i>
+            </button>
+          </div>
         </div>
       `;
+      
       toastContainer.appendChild(toast);
-      const bsToast = new bootstrap.Toast(toast, { delay: 3000 });
-      bsToast.show();
-      toast.addEventListener('hidden.bs.toast', () => toast.remove());
+      feather.replace();
+      
+      // Add click event to close button
+      toast.querySelector('button').addEventListener('click', () => {
+        toast.remove();
+      });
+      
+      // Auto remove after 4 seconds
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(10px)';
+        toast.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+        setTimeout(() => toast.remove(), 300);
+      }, 4000);
     }
 
     // Add log entry
@@ -706,14 +823,44 @@
         showToast(message, 'error');
         return;
       }
+      
+      // Determine message type based on content
+      if (type === 'info') {
+        if (message.includes('Completed')) {
+          type = 'success';
+        } else if (message.includes('Starting') || message.includes('Processing')) {
+          type = 'processing';
+        } else if (message.includes('Waiting') || message.includes('Queue')) {
+          type = 'warning';
+        } else if (message.includes('Error') || message.includes('Failed')) {
+          type = 'error';
+          errorCount++;
+          errorCountEl.textContent = errorCount;
+        }
+      }
+      
       const entry = document.createElement('div');
-      entry.className = `log-entry log-${type} fade-in`;
+      entry.className = `fade-in py-1.5 px-2 rounded mb-1.5 ${
+        type === 'error' ? 'bg-accent-red bg-opacity-10 border-l-2 border-accent-red' : 
+        type === 'success' ? 'bg-accent-green bg-opacity-10 border-l-2 border-accent-green' : 
+        type === 'warning' ? 'bg-accent-yellow bg-opacity-10 border-l-2 border-accent-yellow' : 
+        type === 'processing' ? 'bg-accent-blue bg-opacity-10 border-l-2 border-accent-blue' :
+        'bg-dark-card border-l-2 border-accent-blue'
+      }`;
+      
+      const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      
       entry.innerHTML = `
-        <i data-feather="chevron-right" class="log-icon" style="width: 12px; height: 12px;"></i>
-        <span>${message}</span>
+        <span class="${
+          type === 'error' ? 'text-accent-red' : 
+          type === 'success' ? 'text-accent-green' : 
+          type === 'warning' ? 'text-accent-yellow' : 
+          type === 'processing' ? 'text-accent-blue' : 
+          'text-white'
+        }">${message}</span>
       `;
+      
       logEl.appendChild(entry);
-      feather.replace();
       logEl.scrollTop = logEl.scrollHeight;
 
       // Parse log for progress
@@ -731,20 +878,32 @@
         if (match) {
           pagesCrawled = parseInt(match[1], 10);
           updateProgress();
-          cancelBtn.classList.add('d-none');
+          cancelBtn.classList.add('hidden');
           downloadBtn.disabled = false;
-          eventSource?.close();
+          if (eventSource) {
+            eventSource.close();
+          }
           isCrawling = false;
+          updateStateStatus('COMPLETED');
+
+          // Update crawled files list
+          setTimeout(updateCrawledFiles, 1000);
         }
       } else if (message.includes('Cancellation requested') || message.includes('Crawler has been completely shut down')) {
-        cancelBtn.classList.add('d-none');
+        cancelBtn.classList.add('hidden');
         downloadBtn.disabled = pagesCrawled === 0;
-        eventSource?.close();
+        if (eventSource) {
+          eventSource.close();
+        }
         isCrawling = false;
+        updateStateStatus('CANCELLING');
       }
 
-      if (message.includes('Crawl process initiated') || message.includes('Crawl completed') ||
-          message.includes('Error') || message.includes('Cancellation requested')) {
+      // Show toast for important messages
+      if (message.includes('Crawl process initiated') || 
+          message.includes('Crawl completed') ||
+          message.includes('Error') || 
+          message.includes('Cancellation requested')) {
         showToast(message, type);
       }
     }
@@ -753,12 +912,14 @@
     function updateProgress() {
       const percent = pageValid > 0 ? Math.min((pagesCrawled / pageValid) * 100, 100) : 0;
       progressBar.style.width = `${percent}%`;
-      progressText.textContent = `${percent.toFixed(1)}% (${pagesCrawled} / ${pageValid} pages)`;
+      progressText.textContent = `${pagesCrawled} / ${pageValid} pages`;
+      progressPercent.textContent = `${percent.toFixed(1)}%`;
     }
 
     // Export log
     function exportLog() {
-      const logText = Array.from(logEl.children).map(el => el.textContent).join('\n');
+      const logEntries = Array.from(logEl.children);
+      const logText = logEntries.map(el => el.textContent.trim()).join('\n');
       const blob = new Blob([logText], { type: 'text/plain' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -766,12 +927,18 @@
       a.download = 'crawl_log.txt';
       a.click();
       URL.revokeObjectURL(url);
+      
+      showToast('Log exported successfully', 'success');
     }
 
-    // SSE
+    // Start Server-Sent Events stream
     function startSSE() {
-      if (eventSource) eventSource.close();
+      if (eventSource) {
+        eventSource.close();
+      }
+      
       eventSource = new EventSource('/stream');
+      
       eventSource.onmessage = (e) => {
         if (e.data && !e.data.startsWith(':')) {
           const message = e.data;
@@ -786,53 +953,166 @@
           }
         }
       };
+      
       eventSource.onerror = () => {
         addLog('Log stream disconnected', 'warning');
         eventSource.close();
-        if (isCrawling) updateStatus();
+        if (isCrawling) {
+          // Try to reconnect after a short delay
+          setTimeout(startSSE, 5000);
+        }
       };
     }
 
+    // Start SSE connection
     startSSE();
 
+    // Update status ring
+    function updateStatusRing(ring, value, maxValue = 100) {
+      // Calculate the offset (440 is the full circle circumference)
+      const normalizedValue = Math.min(Math.max(value, 0), maxValue);
+      const percent = normalizedValue / maxValue;
+      const offset = 440 - (440 * percent);
+      ring.style.strokeDashoffset = offset;
+    }
+
+    // Update currently crawling URLs display
+    function updateCurrentUrls(urls) {
+      if (!urls || !urls.length) {
+        currentUrlsEl.innerHTML = '<div class="text-center text-dark-muted">No active crawling</div>';
+        return;
+      }
+      
+      const urlsHtml = urls.map(url => 
+        `<div class="text-sm mb-1 truncate">
+          <span class="inline-block w-3 h-3 rounded-full bg-accent-blue bg-opacity-80 mr-2"></span>
+          <span class="text-dark-text">${url}</span>
+        </div>`
+      ).join('');
+      
+      currentUrlsEl.innerHTML = urlsHtml;
+    }
+
     // Update system status
-    async function updateStatus() {
+    async function updateDetailedStatus() {
       try {
-        const res = await fetch('/status');
+        const res = await fetch('/detailed-status');
         if (!res.ok) throw new Error('Status fetch failed');
         const data = await res.json();
-        cpuStatus.innerHTML = `<i data-feather="cpu"></i>CPU: ${data.system.cpu.toFixed(1)}%`;
-        ramStatus.innerHTML = `<i data-feather="database"></i>RAM: ${data.system.ram.toFixed(1)}%`;
-        tempStatus.innerHTML = `<i data-feather="thermometer"></i>Temp: ${data.system.temperature === 'N/A' ? '--' : data.system.temperature}°C`;
-        stateStatus.innerHTML = `<i data-feather="activity"></i>State: ${data.crawler.is_busy ? 'BUSY' : 'IDLE'}`;
-        feather.replace();
-
-        const now = new Date().toLocaleTimeString();
-        systemChart.data.labels.push(now);
-        systemChart.data.datasets[0].data.push(data.system.cpu);
-        systemChart.data.datasets[1].data.push(data.system.ram);
-        systemChart.data.datasets[2].data.push(data.system.temperature === 'N/A' ? 0 : data.system.temperature);
-        if (systemChart.data.labels.length > 20) {
-          systemChart.data.labels.shift();
-          systemChart.data.datasets.forEach(dataset => dataset.data.shift());
-        }
-        systemChart.update();
-
-        if (data.crawler && data.crawler.pages_crawled !== undefined) {
-          pagesCrawled = data.crawler.pages_crawled;
-          pageValid = data.crawler.page_valid;
-          currentUrlsEl.textContent = `Pages Crawled: ${data.crawler.pages_crawled} | Valid Pages: ${data.crawler.page_valid}`;
+        
+        // Update system metrics
+        cpuStatus.textContent = `${data.server.cpu.toFixed(1)}%`;
+        ramStatus.textContent = `${data.server.ram.toFixed(1)}%`;
+        tempStatus.textContent = data.server.temperature === 'N/A' ? '--°C' : `${data.server.temperature}°C`;
+        
+        // Update status rings
+        updateStatusRing(cpuRing, data.server.cpu);
+        updateStatusRing(ramRing, data.server.ram);
+        updateStatusRing(tempRing, data.server.temperature === 'N/A' ? 0 : data.server.temperature, 100);
+        
+        // Update crawler state
+        if (data.crawler) {
+          // Update state based on backend status
+          if (data.crawler.state) {
+            updateStateStatus(data.crawler.state);
+          } else if (data.crawler.is_busy) {
+            updateStateStatus('CRAWLING');
+          } else {
+            updateStateStatus('IDLE');
+          }
+          
+          // Update crawler metrics
+          if (data.crawler.pages_crawled !== undefined) {
+            pagesCrawled = data.crawler.pages_crawled;
+          }
+          
+          if (data.crawler.pages_valid !== undefined) {
+            pageValid = data.crawler.pages_valid;
+          }
+          
+          // Update token count
+          if (data.crawler.token_count !== undefined) {
+            tokenCount = data.crawler.token_count;
+            tokenCountEl.textContent = formatNumber(tokenCount);
+          }
+          
+          // Update error count
+          if (data.crawler.error_count !== undefined) {
+            errorCount = data.crawler.error_count;
+            errorCountEl.textContent = errorCount;
+          }
+          
+          // Update currently crawling URLs
+          if (data.crawler.currently_crawling) {
+            updateCurrentUrls(data.crawler.currently_crawling);
+          } else {
+            updateCurrentUrls([]);
+          }
+          
+          // Update progress information
           updateProgress();
-        } else {
-          currentUrlsEl.textContent = 'Currently Crawling: None';
+          
+          // Show/hide cancel button based on state
+          if (data.crawler.state === 'CRAWLING' || data.crawler.state === 'INITIALIZING') {
+            cancelBtn.classList.remove('hidden');
+            isCrawling = true;
+          } else {
+            cancelBtn.classList.add('hidden');
+            isCrawling = false;
+          }
+          
+          // Enable/disable download button
+          downloadBtn.disabled = pagesCrawled === 0 || data.crawler.state === 'CRAWLING' || data.crawler.state === 'INITIALIZING';
+        }
+
+        // Update chart data
+        const now = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+        
+        try {
+          // Make sure systemChart is initialized
+          if (window.systemChart && typeof window.systemChart.update === 'function') {
+            if (!window.systemChart.data.labels) {
+              window.systemChart.data.labels = [];
+            }
+            
+            window.systemChart.data.labels.push(now);
+            window.systemChart.data.datasets[0].data.push(data.server.cpu);
+            window.systemChart.data.datasets[1].data.push(data.server.ram);
+            window.systemChart.data.datasets[2].data.push(data.server.temperature === 'N/A' ? 0 : data.server.temperature);
+            
+            if (window.systemChart.data.labels.length > 10) {
+              window.systemChart.data.labels.shift();
+              window.systemChart.data.datasets.forEach(dataset => dataset.data.shift());
+            }
+            
+            window.systemChart.update('none'); // Update without animation for smoother updates
+          }
+        } catch (chartError) {
+          console.error('Error updating chart:', chartError);
+        }
+        
+        // Update queue count
+        if (data.crawler.queue_length !== undefined) {
+          queueCountEl.textContent = data.crawler.queue_length;
         }
       } catch (error) {
         console.error('Status update error:', error);
       }
     }
-    const debouncedUpdateStatus = debounce(updateStatus, 500);
-    debouncedUpdateStatus();
-    setInterval(debouncedUpdateStatus, 1000);
+    
+    // Format date string
+    function formatDate(dateString) {
+      const date = new Date(dateString);
+      return date.toLocaleString();
+    }
+
+    // Format file size
+    function formatFileSize(bytes) {
+      if (!bytes || isNaN(bytes)) return '0 B';
+      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(1024));
+      return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${sizes[i]}`;
+    }
 
     // Update crawled files list
     async function updateCrawledFiles() {
@@ -841,19 +1121,55 @@
         if (!res.ok) throw new Error('Failed to fetch crawled files');
         const data = await res.json();
         const files = data.files || [];
-        crawledFilesList.innerHTML = files.map(file => `
-          <tr class="${latestUrl === file.url ? 'latest-url' : ''}">
-            <td>${file.url}</td>
-            <td>${new Date(file.last_updated).toLocaleString()}</td>
-            <td><a href="/download-file?file=${file.filename}" class="btn btn-success btn-sm">Download</a></td>
+        
+        // Update tab counter
+        crawledCountEl.textContent = files.length;
+        
+        if (files.length === 0) {
+          crawledFilesList.innerHTML = `
+            <tr>
+              <td colspan="4" class="px-4 py-6 text-center text-dark-muted text-sm">
+                No files have been crawled yet
+              </td>
+            </tr>
+          `;
+          return;
+        }
+        
+        // Sort files by last updated (most recent first)
+        const sortedFiles = files.sort((a, b) => 
+          new Date(b.last_updated) - new Date(a.last_updated)
+        );
+        
+        crawledFilesList.innerHTML = sortedFiles.map(file => `
+          <tr class="${latestUrl === file.url ? 'bg-accent-green bg-opacity-10' : ''}">
+            <td class="px-4 py-3 text-sm truncate max-w-xs">
+              <div class="flex items-center">
+                <i data-feather="file-text" class="h-4 w-4 mr-2 text-dark-muted"></i>
+                <span class="truncate">${file.url}</span>
+              </div>
+            </td>
+            <td class="px-4 py-3 text-sm text-dark-muted">
+              ${formatDate(file.last_updated)}
+            </td>
+            <td class="px-4 py-3 text-sm text-dark-muted">
+              ${file.page_count || 0} pages
+              ${file.total_tokens ? `<span class="ml-1 text-xs">(${formatNumber(file.total_tokens)} tokens)</span>` : ''}
+            </td>
+            <td class="px-4 py-3 text-right">
+              <a href="/download-file?file=${file.filename}" class="inline-flex items-center justify-center bg-accent-green bg-opacity-10 hover:bg-opacity-20 text-accent-green rounded-md px-2.5 py-1 text-xs transition-colors">
+                <i data-feather="download" class="h-3.5 w-3.5 mr-1"></i>
+                Download
+              </a>
+            </td>
           </tr>
         `).join('');
+        
+        feather.replace();
       } catch (error) {
         console.error('Error updating crawled files:', error);
       }
     }
-    setInterval(updateCrawledFiles, 5000);
-    updateCrawledFiles();
 
     // Update queued crawls
     async function updateQueueList() {
@@ -862,38 +1178,95 @@
         if (!res.ok) throw new Error('Failed to fetch queued crawls');
         const data = await res.json();
         const queue = data.queue || [];
-        document.getElementById("queue-list").innerHTML = queue.map(item => `
+        
+        // Update queue counter
+        queueCountEl.textContent = queue.length;
+        
+        if (queue.length === 0) {
+          queueList.innerHTML = `
+            <tr>
+              <td colspan="3" class="px-4 py-6 text-center text-dark-muted text-sm">
+                No crawls are currently queued
+              </td>
+            </tr>
+          `;
+          return;
+        }
+        
+        queueList.innerHTML = queue.map(item => `
           <tr>
-            <td>${item.url}</td>
-            <td>${new Date(item.submitted_at).toLocaleString()}</td>
+            <td class="px-4 py-3 text-sm truncate max-w-md">
+              <div class="flex items-center">
+                <i data-feather="link" class="h-4 w-4 mr-2 text-dark-muted"></i>
+                <span class="truncate">${item.url}</span>
+              </div>
+            </td>
+            <td class="px-4 py-3 text-sm text-dark-muted">
+              <div class="flex space-x-2">
+                <span class="tag tag-blue text-xs">${item.max_depth} depth</span>
+                <span class="tag tag-blue text-xs">${item.max_pages} pages</span>
+                ${item.content_selector ? `<span class="tag tag-teal text-xs">Selector</span>` : ''}
+              </div>
+            </td>
+            <td class="px-4 py-3 text-sm text-dark-muted">
+              ${formatDate(item.submitted_at)}
+            </td>
           </tr>
         `).join('');
+        
+        feather.replace();
       } catch (error) {
         console.error("Error updating queue list:", error);
       }
     }
-    setInterval(updateQueueList, 5000);
-    updateQueueList();
 
+    // Set up polling for status updates
+    const debouncedUpdateStatus = debounce(updateDetailedStatus, 500);
+    setInterval(debouncedUpdateStatus, 1000);
+    debouncedUpdateStatus();
+    
+    // Update crawled files and queue list periodically
+    setInterval(() => {
+      if (tabCrawled.getAttribute('aria-selected') === 'true') {
+        updateCrawledFiles();
+      } else if (tabQueue.getAttribute('aria-selected') === 'true') {
+        updateQueueList();
+      }
+    }, 5000);
+    
+    // Initial data load
+    updateCrawledFiles();
+    
     // Form submission
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
+      
+      // Update UI state
       crawlBtn.disabled = true;
-      btnText.textContent = 'Crawling...';
-      btnSpinner.style.display = 'inline-block';
-      cancelBtn.classList.remove('d-none');
+      btnText.textContent = 'Starting Crawl...';
+      btnSpinner.classList.remove('hidden');
+      cancelBtn.classList.remove('hidden');
       downloadBtn.disabled = true;
       progressBar.style.width = '0%';
-      progressText.textContent = '0% (0 / 0 pages)';
+      progressPercent.textContent = '0%';
+      progressText.textContent = '0 / 0 pages';
       pagesCrawled = 0;
       pageValid = 0;
+      errorCount = 0;
+      tokenCount = 0;
+      errorCountEl.textContent = "0";
+      tokenCountEl.textContent = "0";
       logEl.innerHTML = '';
       isCrawling = true;
+      
+      // Update state to initializing
+      updateStateStatus('INITIALIZING');
 
+      // Prepare form data
       const formData = {
         url: document.getElementById('url').value,
-        max_depth: document.getElementById('max_depth').value,
-        max_pages: document.getElementById('max_pages').value,
+        max_depth: parseInt(document.getElementById('max_depth').value),
+        max_pages: parseInt(document.getElementById('max_pages').value),
         content_selector: document.getElementById('content-selector').value,
         sitemap_url: document.getElementById('sitemap-url').value
       };
@@ -904,8 +1277,11 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(formData)
         });
+        
         const data = await response.json();
+        
         if (response.ok) {
+          // Check for cached data
           if (data.cached_data && confirm(`${data.message} Re-crawl?`)) {
             formData.force = true;
             const forcedResponse = await fetch('/start-crawl', {
@@ -915,31 +1291,44 @@
             });
             const forcedData = await forcedResponse.json();
             addLog(forcedData.message, 'info');
-          } else if (data.queued) {
+          } else if (data.message?.includes('queued')) {
             addLog(data.message, 'info');
+            // If queued, update queue tab and switch to it
+            updateQueueList();
+            tabQueue.click();
+            updateStateStatus('IDLE');
+          } else {
+            addLog(data.message || 'Crawl started successfully', 'info');
+            updateStateStatus('CRAWLING');
           }
         } else {
           addLog(data.error || 'Failed to start crawl', 'error');
+          updateStateStatus('ERROR');
         }
       } catch (error) {
         addLog(`Error: ${error.message}`, 'error');
+        updateStateStatus('ERROR');
       } finally {
         crawlBtn.disabled = false;
         btnText.textContent = 'Start Crawl';
-        btnSpinner.style.display = 'none';
+        btnSpinner.classList.add('hidden');
       }
     });
 
-    // Cancel button
+    // Cancel button handler
     cancelBtn.addEventListener('click', async () => {
       try {
+        updateStateStatus('CANCELLING');
         const response = await fetch('/cancel', { method: 'POST' });
         const data = await response.json();
+        
         if (response.ok) {
-          addLog(`${data.message} (${data.pages_crawled}/${data.page_valid} pages)`, 'info');
-          pagesCrawled = data.pages_crawled;
-          pageValid = data.page_valid;
-          updateProgress();
+          addLog(`${data.message} (${data.status.pages_crawled || 0}/${data.status.pages_valid || 0} pages)`, 'info');
+          if (data.status) {
+            pagesCrawled = data.status.pages_crawled || 0;
+            pageValid = data.status.pages_valid || 0;
+            updateProgress();
+          }
         } else {
           addLog(data.message || 'Cancel failed', 'error');
         }
@@ -948,21 +1337,29 @@
       }
     });
 
-    // Resume Queue button
+    // Resume Queue button handler
     resumeBtn.addEventListener('click', async () => {
       try {
         const response = await fetch('/resume-queue', { method: 'POST' });
         const data = await response.json();
         addLog(data.message, 'info');
+        showToast(data.message, 'info');
+        
+        // Update queue data and switch to queue tab
+        if (response.ok) {
+          updateQueueList();
+          tabQueue.click();
+        }
       } catch (error) {
-        addLog(`Resume Queue error: ${error.message}`, 'error');
+        addLog(`Resume queue error: ${error.message}`, 'error');
       }
     });
 
-    // Download button
+    // Download button handler
     downloadBtn.addEventListener('click', async () => {
       try {
         const response = await fetch('/download');
+        
         if (response.ok) {
           const blob = await response.blob();
           const url = URL.createObjectURL(blob);
@@ -972,12 +1369,18 @@
           a.click();
           URL.revokeObjectURL(url);
           addLog('Results downloaded successfully', 'success');
+          showToast('Results downloaded successfully', 'success');
+          
+          // Save the URL as the latest
+          latestUrl = document.getElementById('url').value;
+          updateCrawledFiles();
         } else {
           const data = await response.json();
           addLog(data.error || 'Failed to download results', 'error');
+          
           if (data.progress) {
             pagesCrawled = data.progress.pages_crawled;
-            pageValid = data.progress.page_valid;
+            pageValid = data.progress.pages_valid;
             updateProgress();
           }
         }
@@ -985,7 +1388,31 @@
         addLog(`Download error: ${error.message}`, 'error');
       }
     });
+    
+    // Add keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+      // Ctrl+Enter to start crawl
+      if (e.ctrlKey && e.key === 'Enter') {
+        if (!crawlBtn.disabled) {
+          crawlBtn.click();
+        }
+        e.preventDefault();
+      }
+      
+      // Esc to cancel
+      if (e.key === 'Escape') {
+        if (!cancelBtn.classList.contains('hidden')) {
+          cancelBtn.click();
+        }
+        e.preventDefault();
+      }
+    });
+
+    // Add a warm welcome message
+    document.addEventListener('DOMContentLoaded', () => {
+      feather.replace();
+      addLog('System initialized and ready for crawling', 'info');
+    });
   </script>
 </body>
-
 </html>
